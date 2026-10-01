@@ -35,6 +35,7 @@ export function TimelineBar({ session: s, tl, player, ps, opts, setOpts }: { ses
           <span className="tc-now">{shown.toFixed(2)}</span>
           <span className="tc-sep">/</span>
           <span className="tc-total">{tl.climbEnd.toFixed(2)} s</span>
+          {s.video?.duration != null && <span className="tc-clip" title="The clip's own clock">clip {Math.max(0, Math.min(ps.t + s.video.offset, s.video.duration)).toFixed(2)} / {s.video.duration.toFixed(2)}</span>}
         </div>
         <div className="speeds">
           {[0.25, 0.5, 1, 2].map((r) => (

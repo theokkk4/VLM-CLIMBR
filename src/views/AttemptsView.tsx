@@ -18,7 +18,7 @@ export function AttemptsView({ session: s, letters }: { session: Session; letter
       <div className="empty-state">
         <Waypoints size={28} />
         <h3>One attempt so far</h3>
-        <p>Run several clips of the same route through vision-demos (batch mode) and drop the folder’s <code>comparison.json</code> here to compare your beta across attempts.</p>
+        <p>Attempts on one route are compared here, hold by hold: the example shows four side by side. This climb is the only attempt read so far.</p>
         <div className="attempt-solo card"><SequenceChips seq={s.sequence} label={L} /></div>
       </div>
     )

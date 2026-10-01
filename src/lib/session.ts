@@ -222,7 +222,8 @@ export function buildSession(parts: SessionParts): Session {
   }
 
   const lastMoveEnd = moves.reduce((m, x) => Math.max(m, x.time + x.duration), 0)
-  const elapsed = elapsedRaw ?? (lastMoveEnd || null)
+  // A climb that did not top out has no time to top, whatever its last move was.
+  const elapsed = elapsedRaw ?? (climb?.topped_out === false ? null : lastMoveEnd || null)
   if (!moves.length && sequence.length) moves = movesFromSequence(sequence, elapsed ?? sequence.length * 1.2, holds)
   const order = sequence.length ? sequence : firstUseOrder(moves)
 
@@ -234,6 +235,9 @@ export function buildSession(parts: SessionParts): Session {
   const startFrame = climb?.start_frame ?? null
   const v = man?.video
   const videoSrc = parts.videoUrl ?? resolve(v?.src)
+  const offset = v?.clock_offset ?? (startFrame != null ? startFrame / fps : 0)
+  // With the clip's real length known, the session runs to the end of it.
+  const videoSpan = v?.duration ? v.duration - offset : 0
 
   const scale = man?.scale
     ? { metersPerUnit: man.scale.meters_per_unit, floorY: man.scale.floor_y, source: man.scale.source ?? 'estimated' as const }
@@ -255,7 +259,7 @@ export function buildSession(parts: SessionParts): Session {
     moves,
     sequence: order,
     elapsed,
-    duration: Math.max(elapsed ?? 0, lastMoveEnd, 1),
+    duration: Math.max(elapsed ?? 0, lastMoveEnd, videoSpan),
     toppedOut,
     finalHoldId,
     holdsDetected: detected || holds.length,
@@ -267,10 +271,11 @@ export function buildSession(parts: SessionParts): Session {
           src: videoSrc,
           webm: parts.videoUrl ? undefined : resolve(v?.webm),
           poster: resolve(v?.poster),
-          offset: v?.clock_offset ?? (startFrame != null ? startFrame / fps : 0),
+          offset,
           affine: v?.affine,
           width: v?.width,
           height: v?.height,
+          duration: v?.duration,
           overlays: v?.overlays ?? 'none',
         }
       : undefined,
@@ -294,52 +299,3 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 /** Hold-unit for sizing labels and markers: the median hold height. */
 export const holdUnit = (holds: Hold[]) => median(holds.map((h) => h.bbox[3])) || 0.03
 
-/** The pipeline's climb.json, rebuilt from a session — what Export writes. */
-export function toPipelineClimb(s: Session): PipelineClimb {
-  const util = s.utilization ?? utilizationFromMoves(s.moves, s.elapsed ?? s.duration)
-  return {
-    route: { color: s.route.color, grade: s.route.grade, name: s.route.name ?? null, prompt: s.route.prompt ?? `${s.route.color} climbing hold` },
-    route_color: s.route.color,
-    prompt: s.route.prompt ?? `${s.route.color} climbing hold`,
-    fps: s.fps,
-    holds_detected: s.holdsDetected,
-    holds_used: s.sequence.length,
-    final_hold_id: s.finalHoldId,
-    elapsed_seconds: s.elapsed,
-    topped_out: s.toppedOut,
-    order: s.sequence,
-    sequence: s.sequence,
-    moves: s.moves.map((m, i) => ({
-      step: i + 1,
-      hold_id: m.holdId,
-      limb: m.limb,
-      limb_label: LIMBS.find((l) => l.key === m.limb)!.label,
-      time: round(m.time),
-      contact_seconds: round(m.duration),
-    })),
-    utilization: {
-      total_contact_seconds: round(LIMBS.reduce((t, l) => t + util[l.key].seconds, 0)),
-      per_limb: Object.fromEntries(LIMBS.map((l) => [l.key, {
-        seconds: round(util[l.key].seconds),
-        share_of_contact: round(util[l.key].share, 5),
-        coverage_of_climb: round(util[l.key].coverage, 5),
-        holds: util[l.key].holds,
-        sequence: util[l.key].sequence,
-      }])),
-    },
-    holds: s.holds.map((h) => {
-      const own = s.moves.filter((m) => m.holdId === h.id)
-      if (!own.length) return { hold_id: h.id, order: null, limbs: '', time_start: null, time_end: null, contact_seconds: null }
-      return {
-        hold_id: h.id,
-        order: s.sequence.indexOf(h.id) + 1 || null,
-        limbs: LIMBS.filter((l) => own.some((m) => m.limb === l.key)).map((l) => l.label).join('+'),
-        time_start: round(Math.min(...own.map((m) => m.time))),
-        time_end: round(Math.max(...own.map((m) => m.time + m.duration))),
-        contact_seconds: round(own.reduce((t, m) => t + m.duration, 0)),
-      }
-    }),
-  }
-}
-
-const round = (v: number, d = 3) => Math.round(v * 10 ** d) / 10 ** d

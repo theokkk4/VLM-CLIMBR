@@ -1,51 +1,12 @@
-// Getting a climb out: a coach report (PDF), a share card (PNG), the session
-// (CLIMBR JSON), the pipeline's own climb.json, and the moves as CSV.
+// Getting a climb out: a coach report (PDF), a share card (PNG) and the moves
+// as CSV. The analysis video is rendered on request by videoexport.ts.
 
 import { jsPDF } from 'jspdf'
 import { onDeviceFeedback } from './coach'
 import { holdFill } from './colors'
 import { hexA, polygonPath } from './geometry'
-import { toPipelineClimb } from './session'
 import { GOLD, LIMBS, LIMB_BY_KEY, ROUTE_COLORS, type CoachFeedback, type Session, type Vec2 } from './types'
-
-export function download(name: string, data: Blob | string, type = 'application/octet-stream') {
-  const blob = typeof data === 'string' ? new Blob([data], { type }) : data
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = name
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 4000)
-}
-
-export const slug = (s: Session) => `${s.title}-${s.route.color}-${s.route.grade}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-
-export function sessionBundle(s: Session) {
-  const clean: Session = JSON.parse(JSON.stringify(s))
-  if (clean.video?.src?.startsWith('blob:')) clean.video = { ...clean.video, src: '' }
-  if (clean.wall?.src?.startsWith('blob:')) delete clean.wall
-  if (clean.lidar?.plyUrl?.startsWith('blob:')) delete clean.lidar
-  return {
-    climbr: 1,
-    kind: 'session',
-    exported_at: new Date().toISOString(),
-    session: clean,
-    pipeline: {
-      climb: toPipelineClimb(s),
-      holds: s.holds.map((h) => ({ id: h.id, bbox: h.bbox, polygon: h.polygon, score: h.score ?? null })),
-    },
-  }
-}
-
-export function exportJson(s: Session) {
-  download(`${slug(s)}.climbr.json`, JSON.stringify(sessionBundle(s), null, 2), 'application/json')
-}
-
-export function exportClimbJson(s: Session) {
-  download('climb.json', JSON.stringify(toPipelineClimb(s), null, 2), 'application/json')
-}
+import { download, slug } from './download'
 
 export function exportCsv(s: Session) {
   const rows = [['step', 'limb', 'hold_id', 'time', 'contact_seconds']]

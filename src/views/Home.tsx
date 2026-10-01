@@ -1,7 +1,8 @@
 import { motion } from 'framer-motion'
-import { ArrowRight, Box, Brain, Clapperboard, Play, ScanLine, Upload } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Box, Brain, Clapperboard, Play, ScanLine, Upload } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { MiniRoute } from '../components/MiniRoute'
+import { sessionProblem } from '../lib/live'
 import { getPrefs, listSessions, type StoredSession } from '../lib/store'
 import { ROUTE_COLORS, type Session } from '../lib/types'
 
@@ -59,13 +60,13 @@ export function Home({ sessions, go }: { sessions: Session[]; go: (h: string) =>
               {s.video?.poster ? <img src={s.video.poster} alt="" /> : <MiniRoute session={s} sequence={s.sequence} animate={false} height={180} />}
               <span className="sc-play"><Play size={14} fill="currentColor" /></span>
               {s.kind === 'example' && <span className="chip accent sc-tag">Example</span>}
-              {s.kind === 'live' && <span className="chip accent sc-tag">VLM Run</span>}
+              {s.kind === 'live' && (sessionProblem(s) ? <span className="chip warn sc-tag" title={sessionProblem(s)!}><AlertTriangle size={11} /> Re-analyze</span> : <span className="chip accent sc-tag">VLM Run</span>)}
             </div>
             <div className="sc-body">
               <b>{s.title}</b>
               <span className="muted xs"><span className="route-dot" style={{ background: ROUTE_COLORS[s.route.color] }} />{s.route.color} · {s.route.grade} · {s.climber}</span>
               <div className="sc-stats">
-                <span><b>{s.elapsed?.toFixed(2) ?? '—'}</b> s</span>
+                {s.toppedOut && s.elapsed != null ? <span><b>{s.elapsed.toFixed(2)}</b> s</span> : s.video?.duration ? <span><b>{s.video.duration.toFixed(1)}</b> s clip</span> : <span><b>—</b> s</span>}
                 <span><b>{s.sequence.length}</b>/{s.holdsDetected} holds</span>
                 <span><b>{s.moves.length}</b> moves</span>
               </div>
@@ -75,7 +76,7 @@ export function Home({ sessions, go }: { sessions: Session[]; go: (h: string) =>
         <motion.button className="card session-card add" onClick={() => go('#/import')} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 + all.length * 0.06 }} whileHover={{ y: -4 }}>
           <Upload size={22} />
           <b>Import a climb</b>
-          <span className="muted xs">video · JSON · LiDAR</span>
+          <span className="muted xs">a phone video of one attempt</span>
         </motion.button>
       </div>
 

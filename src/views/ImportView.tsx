@@ -1,154 +1,158 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { ArrowRight, Box, Braces, CheckCircle2, ClipboardPaste, FileJson, FileVideo, FolderOpen, Loader2, Sparkles, Trash2, Upload, Wand2, X } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, FileVideo, Loader2, RotateCcw, ScanLine, SearchX, Sparkles, Trash2, Upload, X, XCircle } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from '../components/Toast'
-import { analyzePayloads } from '../lib/analyze'
-import { analyzeLive, type Health, type StageEvent, type StageKey } from '../lib/api'
-import { assess, detectFile, detectPasted, filesFromDataTransfer, fmtBytes, sessionFromItems, type Detected } from '../lib/importers'
-import { buildSession } from '../lib/session'
-import { buildWallPlate } from '../lib/wallplate'
+import { readRoute, type Reading } from '../lib/analyze'
+import { analyzeLive, reportRun, STAGE_KEYS, StageError, type Health, type StageEvent, type StageKey } from '../lib/api'
+import { requestVlmCoach } from '../lib/coach'
+import { clipFrom, filesFromDataTransfer, fmtBytes, isVideo, videoMeta, type Clip } from '../lib/importers'
+import { clockLabel, failedChecks, sessionFromLive, sessionProblem } from '../lib/live'
 import { deleteSession, getPrefs, listSessions, saveSession, type StoredSession } from '../lib/store'
-import { ROUTE_COLORS, type Session } from '../lib/types'
+import { ROUTE_COLORS, type Check, type Session } from '../lib/types'
+import { buildWallPlate } from '../lib/wallplate'
 
 const GRADES = ['VB', 'V0', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6', 'V7+']
 
-function iconFor(kind: Detected['kind']) {
-  if (kind === 'video') return <FileVideo size={16} />
-  if (kind === 'ply') return <Box size={16} />
-  if (kind === 'sam' || kind === 'pose') return <Sparkles size={16} />
-  if (kind === 'unknown' || kind === 'text') return <Braces size={16} />
-  return <FileJson size={16} />
+// ── the run, as a state machine ─────────────────────────────────────────────
+// uploading → extracting_frames → segmenting ‖ estimating_pose → analyzing_moves
+// → (coaching) → complete. Any stage can end it in `error`; a run that worked
+// but found nothing to read ends in `empty`, which is not a failure.
+type StageStatus = 'pending' | 'running' | 'done' | 'error' | 'skipped'
+interface StageState { status: StageStatus; detail?: string; progress?: number }
+type Phase = StageKey | 'complete' | 'empty' | 'error'
+interface Run {
+  phase: Phase
+  stages: Record<StageKey, StageState>
+  started: number
+  finished?: number
+  clip: Clip
+  error?: { stage: StageKey | null; message: string; checks?: Check[] }
+  empty?: string
+  debug?: string | null
 }
+
+const fresh = (clip: Clip): Run => ({
+  phase: 'uploading',
+  stages: Object.fromEntries(STAGE_KEYS.map((k) => [k, { status: k === 'uploading' ? 'running' : 'pending' }])) as Run['stages'],
+  started: Date.now(),
+  clip,
+})
 
 export function ImportView({ health, onSession }: { health: Health | null; onSession: (s: Session) => void }) {
   const prefs = getPrefs()
-  const [items, setItems] = useState<Detected[]>([])
-  const [paste, setPaste] = useState('')
+  const [clip, setClip] = useState<Clip | null>(null)
   const [drag, setDrag] = useState(false)
   const [title, setTitle] = useState('')
   const [climber, setClimber] = useState(prefs.name ?? '')
   const [color, setColor] = useState(prefs.color ?? 'green')
   const [grade, setGrade] = useState(prefs.grade ?? 'V0')
   const [recent, setRecent] = useState<StoredSession[]>([])
-  const [live, setLive] = useState<null | { stages: Partial<Record<StageKey, StageEvent>>; upload: number; started: number; file: Detected }>(null)
+  const [run, setRun] = useState<Run | null>(null)
   const abort = useRef<AbortController | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
-  const folderInput = useRef<HTMLInputElement>(null)
 
   useEffect(() => { listSessions().then(setRecent) }, [])
 
   const add = async (files: File[]) => {
-    const found = await Promise.all(files.map(detectFile))
-    for (const d of found) {
-      if (d.kind === 'video' && d.url) {
-        const meta = await videoMeta(d.url)
-        if (meta) { d.detail = `${meta.w}×${meta.h} · ${meta.dur.toFixed(1)} s · ${fmtBytes(d.size)}`; d.data = meta }
-      }
+    const video = files.find(isVideo)
+    if (!video) {
+      if (files.length) toast('CLIMBR reads a video of the climb: .mov, .mp4 or .webm', 'warn')
+      return
     }
-    setItems((xs) => [...xs, ...found])
-    const route = found.find((d) => d.kind === 'climb' || d.kind === 'sequence' || d.kind === 'comparison')?.data?.route
-    if (route?.color) setColor(route.color)
-    if (route?.grade) setGrade(route.grade)
+    const c = clipFrom(video)
+    setClip(c)
+    const meta = await videoMeta(c.url)
+    setClip((cur) => (cur?.id === c.id ? { ...c, meta } : cur))
   }
 
-  const readPaste = () => {
-    const found = detectPasted(paste)
-    if (!found.length) return
-    setItems((xs) => [...xs, ...found])
-    setPaste('')
-    const route = found.find((d) => d.kind === 'climb' || d.kind === 'sequence' || d.kind === 'comparison')?.data?.route
-    if (route?.color) setColor(route.color)
-    if (route?.grade) setGrade(route.grade)
-    if (route?.name && !title) setTitle(route.name)
-    const bad = found.filter((f) => f.kind === 'text' || f.kind === 'unknown')
-    toast(bad.length ? `${found.length - bad.length} recognised, ${bad.length} not` : `Read ${found.length} JSON document${found.length > 1 ? 's' : ''}`, bad.length ? 'warn' : 'ok')
-  }
+  const patch = (fn: (r: Run) => Run) => setRun((r) => (r ? fn(r) : r))
+  const stage = (k: StageKey, s: Partial<StageState>) => patch((r) => {
+    const stages = { ...r.stages, [k]: { ...r.stages[k], ...s } }
+    // The phase is the furthest stage under way.
+    const running = STAGE_KEYS.filter((x) => stages[x].status === 'running')
+    return { ...r, stages, phase: running.length ? running[running.length - 1] : r.phase }
+  })
 
-  const loadSample = async (kind: 'raw' | 'pipeline') => {
-    const base = '/examples/green-vb/'
-    const files = kind === 'raw' ? ['gateway/sam3.1-track.json', 'gateway/vitpose-plus-large.json'] : ['climb.json', 'sequence.json', 'holds.json', 'comparison.json']
-    const fetched = await Promise.all([...files, 'climb.mp4'].map(async (f) => {
-      const b = await (await fetch(base + f)).blob()
-      return new File([b], f.split('/').pop()!, { type: f.endsWith('.mp4') ? 'video/mp4' : 'application/json' })
-    }))
-    setItems([])
-    await add(fetched)
-    setTitle(kind === 'raw' ? 'Green VB — read live from VLM output' : 'Green VB — pipeline import')
-    setClimber('Jeremy Park')
-    setColor('green')
-    setGrade('VB')
-    toast(kind === 'raw' ? 'Loaded real SAM 3.1 + ViTPose+ responses' : 'Loaded vision-demos outputs', 'info')
-  }
-
-  const state = assess(items)
-  const video = items.find((i) => i.kind === 'video')
-
-  const open = async () => {
-    try {
-      const { session, warnings } = sessionFromItems(items, { title, climber, color, grade, videoAspect: video?.data ? video.data.w / video.data.h : undefined })
-      if (video?.data && session.video && !session.video.width) Object.assign(session.video, { width: video.data.w, height: video.data.h })
-      // A clip from the bundled example already carries its overlays.
-      if (video && video.name === 'climb.mp4' && session.video) session.video.overlays = 'burned-in'
-      warnings.forEach((w) => toast(w, 'warn'))
-      if (session.video && !session.wall) {
-        const plate = await buildWallPlate(session)
-        if (plate) session.wall = { src: plate, affine: session.video.affine ?? [[1, 0, 0], [0, 1, 0]] }
-      }
-      const ok = await saveSession(session)
-      if (ok) toast('Saved to this browser', 'info')
-      onSession(session)
-    } catch (e) {
-      toast((e as Error).message, 'warn')
-    }
-  }
-
-  const runLive = async () => {
-    if (!video?.file) return
+  const start = async () => {
+    if (!clip) return
+    abort.current?.abort()
     const ctl = new AbortController()
     abort.current = ctl
-    setLive({ stages: {}, upload: 0, started: Date.now(), file: video })
+    setRun(fresh(clip))
+    let current: StageKey = 'uploading'
+    const onEvent = (e: StageEvent) => {
+      if (e.stage !== 'uploading') stage('uploading', { status: 'done', progress: 1 })
+      current = e.stage
+      stage(e.stage, { status: e.status, detail: e.detail ?? undefined, progress: e.progress })
+    }
     try {
-      const r = await analyzeLive(video.file, { color, health, meta: video.data ? { width: video.data.w, height: video.data.h, duration: video.data.dur } : undefined }, (e) => setLive((l) => l && { ...l, stages: { ...l.stages, [e.stage]: e } }), (p) => setLive((l) => l && { ...l, upload: p }), ctl.signal)
-      setLive((l) => l && { ...l, stages: { ...l.stages, read: { type: 'stage', stage: 'read', status: 'running' } } })
-      await new Promise((res) => setTimeout(res, 400))
-      const a = analyzePayloads(r.holds, r.poses, { color, aspect: r.meta.width / r.meta.height, fps: r.meta.fps })
-      const s = buildSession({
-        manifest: {
-          climbr: 1,
-          canvas: { width: r.meta.width, height: r.meta.height },
-          torso: a.torso,
-          video: { src: r.video ?? video.url!, clock_offset: (a.startFrame ?? 0) / r.meta.fps, affine: [[1, 0, 0], [0, 1, 0]], width: r.meta.width, height: r.meta.height, overlays: 'none' },
-          models: { holds: 'facebook/sam3.1', pose: 'usyd-community/vitpose-plus-large' },
-        },
-        climb: a.climb,
-        holds: a.holds,
-        kind: 'live',
-        meta: { title: title || undefined, climber: climber || undefined, route: { color, grade } },
-      })
-      if (r.video) s.video!.mediaId = `${r.id}.mp4`
-      const cost = (r.usage?.holds?.cost ?? 0) + (r.usage?.pose?.cost ?? 0)
-      s.usage = { costUsd: cost }
-      setLive((l) => l && { ...l, stages: { ...l.stages, read: { type: 'stage', stage: 'read', status: 'done', detail: `${a.climb.sequence?.length} holds used · ${a.climb.elapsed_seconds != null ? a.climb.elapsed_seconds.toFixed(2) + ' s' : 'no top-out'}` } } })
-      a.warnings.forEach((w) => toast(w, 'warn'))
+      const r = await analyzeLive(clip.file, { color, health }, onEvent, (p) => stage('uploading', { progress: p, detail: `${Math.round(p * 100)}% of ${fmtBytes(clip.size)}` }), ctl.signal)
+      patch((x) => ({ ...x, debug: r.debug }))
+
+      // ── analyzing_moves: the route reader, then every number checked ──
+      current = 'analyzing_moves'
+      stage('analyzing_moves', { status: 'running', detail: 'Placing the camera, the holds and every contact' })
+      await new Promise((res) => setTimeout(res, 50))
+      let reading: Reading
+      try {
+        reading = readRoute({ sam: r.sam, pose: r.pose, frame: { width: r.analysis.width, height: r.analysis.height, duration: r.analysis.duration }, color })
+      } catch (e) {
+        throw new StageError((e as Error).message, 'analyzing_moves')
+      }
+      if (reading.outcome !== 'ok') {
+        const why = reading.outcome === 'no-holds'
+          ? `SAM 3.1 sampled ${r.sam.samples.length} frames and found no ${color} holds it was sure of. If the route is another colour, pick it and run again.`
+          : `ViTPose+ posed ${r.pose.framesPosed} frames but found nobody on the ${color} holds.`
+        stage('analyzing_moves', { status: 'done', detail: reading.outcome === 'no-holds' ? `0 ${color} holds` : 'no climber' })
+        reportRun(r.id, { status: 'empty', outcome: reading.outcome, summary: reading.stats, warnings: reading.warnings })
+        patch((x) => ({ ...x, phase: 'empty', empty: why, finished: Date.now() }))
+        return
+      }
+      const s = sessionFromLive(r, reading, { title, climber, color, grade }, { src: r.playback.src, webm: r.playback.webm, poster: r.playback.poster })
+      const bad = failedChecks(s.analysis!.validation)
+      reportRun(r.id, { status: bad.length ? 'invalid' : 'valid', summary: reading.stats, validation: s.analysis!.validation, warnings: s.analysis!.warnings, session: { duration: s.duration, offset: s.video!.offset, canvas: s.canvas, holds: s.holds.length, moves: s.moves.length, sequence: s.sequence, elapsed: s.elapsed } })
+      if (bad.length) throw Object.assign(new StageError(`The result failed ${bad.length} check${bad.length > 1 ? 's' : ''}, so it was not opened.`, 'analyzing_moves'), { checks: bad })
       const plate = await buildWallPlate(s)
       if (plate) s.wall = { src: plate, affine: [[1, 0, 0], [0, 1, 0]] }
-      await saveSession(s)
+      stage('analyzing_moves', { status: 'done', detail: `${s.holds.length} holds · ${s.moves.length} moves · ${s.toppedOut ? `topped out in ${s.elapsed!.toFixed(2)} s` : 'no top-out'} · camera ${reading.stats.camera}` })
+
+      // ── coaching: optional. A coach that cannot answer does not sink the run. ──
+      current = 'coaching'
+      stage('coaching', { status: 'running', detail: 'A VLM reads the numbers and 8 keyframes' })
+      try {
+        const fb = await requestVlmCoach(s, ctl.signal)
+        s.coach = fb
+        stage('coaching', { status: 'done', detail: `${fb.model ?? 'VLM'} · “${fb.headline}”` })
+      } catch (e) {
+        if ((e as Error).name === 'AbortError') throw e
+        stage('coaching', { status: 'skipped', detail: `Not this time: ${(e as Error).message}. The Coach tab can ask again.` })
+      }
+
+      const saved = await saveSession(s)
+      if (!saved) toast('Could not save to this browser (storage is blocked); the replay still opens.', 'warn')
+      patch((x) => ({ ...x, phase: 'complete', finished: Date.now() }))
       await new Promise((res) => setTimeout(res, 900))
+      const cost = s.usage?.costUsd
       toast(`Analyzed with VLM Run${cost ? ` for $${cost.toFixed(3)}` : ''}`)
-      setLive(null)
+      setRun(null)
       onSession(s)
     } catch (e) {
-      if ((e as Error).name !== 'AbortError') toast((e as Error).message, 'warn')
-      setLive(null)
+      if ((e as Error).name === 'AbortError') { setRun(null); return }
+      const err = e as StageError & { checks?: Check[] }
+      const failed = err.stage ?? current
+      stage(failed, { status: 'error', detail: err.message })
+      patch((x) => ({ ...x, phase: 'error', finished: Date.now(), error: { stage: failed, message: err.message, checks: err.checks } }))
     }
   }
+
+  const ready = Boolean(clip && health?.connected && health.ffmpeg !== false && (health.platform !== 'vercel' || health.uploads === 'blob'))
 
   return (
     <motion.section className="import" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
       <div className="import-head">
         <span className="kicker">New climb</span>
         <h1>Bring a climb.</h1>
-        <p className="muted">A phone video, the output folder from <code>vision-demos</code>, an iPhone LiDAR capture — or just paste the JSON a VLM returned. CLIMBR figures out what you gave it.</p>
+        <p className="muted">A phone video of one attempt. SAM 3.1 finds every hold of your route’s colour, ViTPose+ tracks all four limbs, and CLIMBR reads the moves, even when the camera follows you up the wall.</p>
       </div>
 
       <div className="import-grid">
@@ -160,59 +164,33 @@ export function ImportView({ health, onSession }: { health: Health | null; onSes
             <div className="dz-glow" />
             <div className="dz-icons">
               <motion.span animate={{ y: [0, -5, 0] }} transition={{ duration: 3, repeat: Infinity, delay: 0 }}><FileVideo size={22} /></motion.span>
-              <motion.span animate={{ y: [0, -5, 0] }} transition={{ duration: 3, repeat: Infinity, delay: 0.4 }}><FileJson size={22} /></motion.span>
-              <motion.span animate={{ y: [0, -5, 0] }} transition={{ duration: 3, repeat: Infinity, delay: 0.8 }}><Box size={22} /></motion.span>
+              <motion.span animate={{ y: [0, -5, 0] }} transition={{ duration: 3, repeat: Infinity, delay: 0.4 }}><ScanLine size={22} /></motion.span>
+              <motion.span animate={{ y: [0, -5, 0] }} transition={{ duration: 3, repeat: Infinity, delay: 0.8 }}><Sparkles size={22} /></motion.span>
             </div>
             <h3>Drop your climb here</h3>
-            <p>.mov / .mp4 · climb.json · holds.json · comparison.json · wall.ply · raw VLM Run responses</p>
+            <p>.mov · .mp4 · .webm — iPhone HDR, any orientation, up to 2 minutes</p>
             <div className="dz-actions">
-              <button className="btn" onClick={() => fileInput.current?.click()}><Upload size={15} /> Browse files</button>
-              <button className="btn ghost" onClick={() => folderInput.current?.click()}><FolderOpen size={15} /> Output folder</button>
+              <button className="btn" onClick={() => fileInput.current?.click()}><Upload size={15} /> Choose a video</button>
             </div>
-            <input ref={fileInput} type="file" multiple hidden onChange={(e) => { add([...(e.target.files ?? [])]); e.target.value = '' }} />
-            <input ref={folderInput} type="file" hidden multiple {...({ webkitdirectory: '' } as any)} onChange={(e) => { add([...(e.target.files ?? [])]); e.target.value = '' }} />
+            <input ref={fileInput} type="file" accept="video/*,.mov,.mp4,.m4v,.webm" hidden onChange={(e) => { add([...(e.target.files ?? [])]); e.target.value = '' }} />
           </div>
 
-          <div className="card paste-card">
-            <div className="limb-head"><span className="kicker"><ClipboardPaste size={12} /> Paste VLM JSON</span><span className="kicker dim">one or many documents</span></div>
-            <textarea value={paste} onChange={(e) => setPaste(e.target.value)} placeholder={'{ "content": { "object": "vid.segment.masks", … } }\n\n…or climb.json, sequence.json, comparison.json, a chat completion from the gateway'} spellCheck={false} />
-            <div className="paste-actions">
-              <button className="btn" disabled={!paste.trim()} onClick={readPaste}><Wand2 size={15} /> Read JSON</button>
-            </div>
-          </div>
-
-          <div className="samples">
-            <span className="kicker">Try it with real output</span>
-            <div className="sample-row">
-              <button className="sample" onClick={() => loadSample('raw')}>
-                <Sparkles size={16} />
-                <span><b>Raw VLM Run responses</b><em>SAM 3.1 tracks + ViTPose+ poses → read in your browser</em></span>
-                <ArrowRight size={15} />
-              </button>
-              <button className="sample" onClick={() => loadSample('pipeline')}>
-                <FileJson size={16} />
-                <span><b>vision-demos outputs</b><em>climb · sequence · holds · comparison .json</em></span>
-                <ArrowRight size={15} />
-              </button>
-            </div>
+          <div className="card detected">
+            <div className="limb-head"><span className="kicker">Clip</span>{clip && <button className="link" onClick={() => setClip(null)}>Clear</button>}</div>
+            {!clip && <p className="muted xs">Nothing yet. The clip you choose shows up here.</p>}
+            <AnimatePresence initial={false}>
+              {clip && (
+                <motion.div key={clip.id} className="det" layout initial={{ opacity: 0, y: -8, height: 0 }} animate={{ opacity: 1, y: 0, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
+                  <span className="det-icon"><FileVideo size={16} /></span>
+                  <span className="det-text"><b>{clip.name}</b><em>{clip.meta ? `${clip.meta.w}×${clip.meta.h} · ${clip.meta.dur.toFixed(1)} s · ` : ''}{fmtBytes(clip.size)}{clip.meta ? '' : ' · read on the server'}</em></span>
+                  <button className="icon-btn" onClick={() => setClip(null)} aria-label="Remove"><X size={14} /></button>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </div>
 
         <div className="import-right">
-          <div className="card detected">
-            <div className="limb-head"><span className="kicker">Detected</span>{items.length > 0 && <button className="link" onClick={() => setItems([])}>Clear</button>}</div>
-            {items.length === 0 && <p className="muted xs">Nothing yet. Everything you add shows up here with what CLIMBR recognised it as.</p>}
-            <AnimatePresence initial={false}>
-              {items.map((d) => (
-                <motion.div key={d.id} className={`det ${d.kind === 'unknown' || d.kind === 'text' ? 'bad' : ''}`} layout initial={{ opacity: 0, y: -8, height: 0 }} animate={{ opacity: 1, y: 0, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
-                  <span className="det-icon">{iconFor(d.kind)}</span>
-                  <span className="det-text"><b>{d.label}</b><em>{d.name !== 'pasted' ? `${d.name} · ` : ''}{d.detail}</em></span>
-                  <button className="icon-btn" onClick={() => setItems((xs) => xs.filter((x) => x.id !== d.id))} aria-label="Remove"><X size={14} /></button>
-                </motion.div>
-              ))}
-            </AnimatePresence>
-          </div>
-
           <div className="card">
             <span className="kicker">Details</span>
             <div className="form">
@@ -233,100 +211,91 @@ export function ImportView({ health, onSession }: { health: Health | null; onSes
 
           <div className="card go-card">
             <div className="go-status">
-              {state.ready ? <CheckCircle2 size={16} className="ok" /> : <span className="dot-idle" />}
-              <span>{state.summary}</span>
+              {ready ? <CheckCircle2 size={16} className="ok" /> : <span className="dot-idle" />}
+              <span>{clip ? (ready ? 'Ready to analyze' : 'The server is not ready') : 'Choose a video to start'}</span>
             </div>
-            {state.missing.length > 0 && items.length > 0 && <ul className="missing">{state.missing.map((m) => <li key={m}>{m}</li>)}</ul>}
-            {state.needsLive ? (
-              <button className="btn primary wide" disabled={!health?.connected} onClick={runLive}>
-                <Sparkles size={15} /> Analyze with VLM Run
-              </button>
-            ) : (
-              <button className="btn primary wide" disabled={!state.ready} onClick={open}>
-                Open replay <ArrowRight size={15} />
-              </button>
-            )}
-            {state.needsLive && !health?.connected && <p className="muted xs">Live analysis needs the CLIMBR server with a <code>VLMRUN_API_KEY</code> in <code>.env</code> (or in the Vercel project’s environment variables).</p>}
-            {state.needsLive && health?.connected && health.uploads === 'none' && <p className="muted xs">On Vercel, live analysis also needs a Blob store (Storage → Blob → connect to this project).</p>}
-            {state.needsLive && health?.connected && <p className="muted xs">SAM 3.1 tracks the {color} holds and ViTPose+ poses every frame — usually under a minute and a few cents.</p>}
+            <button className="btn primary wide" disabled={!ready} onClick={start}>
+              <Sparkles size={15} /> Analyze with VLM Run
+            </button>
+            {!health?.connected && <p className="muted xs">Live analysis needs the CLIMBR server with a <code>VLMRUN_API_KEY</code> in <code>.env</code> (or in the Vercel project’s environment variables).</p>}
+            {health?.connected && health.ffmpeg === false && <p className="muted xs">The server has no ffmpeg. Run <code>npm install</code> (it brings ffmpeg-static) and restart it.</p>}
+            {health?.connected && health.platform === 'vercel' && health.uploads !== 'blob' && <p className="muted xs">On Vercel, live analysis also needs a Blob store (Storage → Blob → connect to this project).</p>}
+            {health?.connected && <p className="muted xs">SAM 3.1 tracks the {color} holds and ViTPose+ poses {health.analysis?.fps ?? 10} frames a second. Usually about a minute and a few cents.</p>}
           </div>
 
           {recent.length > 0 && (
             <div className="card recent">
               <span className="kicker">Saved in this browser</span>
-              {recent.slice(0, 5).map((r) => (
-                <div key={r.id} className="recent-row">
-                  <a href={`#/session/${encodeURIComponent(r.id)}`}><b>{r.session.title}</b><em>{r.session.route.color} · {r.session.route.grade} · {r.session.elapsed?.toFixed(2) ?? '—'} s</em></a>
-                  <button className="icon-btn" onClick={async () => { await deleteSession(r.id); setRecent(await listSessions()) }} aria-label="Delete"><Trash2 size={14} /></button>
-                </div>
-              ))}
+              {recent.slice(0, 5).map((r) => {
+                const problem = sessionProblem(r.session)
+                return (
+                  <div key={r.id} className="recent-row">
+                    <a href={`#/session/${encodeURIComponent(r.id)}`}><b>{r.session.title}{problem && <AlertTriangle size={12} className="warn-icon" />}</b><em>{r.session.route.color} · {r.session.route.grade} · {clockLabel(r.session)}</em></a>
+                    <button className="icon-btn" onClick={async () => { await deleteSession(r.id); setRecent(await listSessions()) }} aria-label="Delete"><Trash2 size={14} /></button>
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>
       </div>
 
-      <AnimatePresence>{live && <AnalyzeOverlay live={live} color={color} onCancel={() => { abort.current?.abort(); setLive(null) }} />}</AnimatePresence>
+      <AnimatePresence>{run && <AnalyzeOverlay run={run} color={color} onRetry={start} onClose={() => { abort.current?.abort(); setRun(null) }} />}</AnimatePresence>
     </motion.section>
   )
 }
 
-function videoMeta(url: string): Promise<{ w: number; h: number; dur: number } | null> {
-  return new Promise((res) => {
-    const v = document.createElement('video')
-    const done = setTimeout(() => res(null), 4000) // a codec the browser cannot parse may never answer
-    v.preload = 'metadata'
-    v.muted = true
-    v.onloadedmetadata = () => { clearTimeout(done); res({ w: v.videoWidth, h: v.videoHeight, dur: v.duration }) }
-    v.onerror = () => { clearTimeout(done); res(null) }
-    v.src = url
-  })
-}
-
 const STAGES: { key: StageKey; label: string; model?: string }[] = [
-  { key: 'upload', label: 'Uploading the clip' },
-  { key: 'transcode', label: 'Preparing video', model: 'H.264 · 30 fps' },
-  { key: 'holds', label: 'Segmenting holds', model: 'facebook/sam3.1' },
-  { key: 'pose', label: 'Tracking the climber', model: 'vitpose-plus-large' },
-  { key: 'read', label: 'Reading the route', model: 'in your browser' },
+  { key: 'uploading', label: 'Uploading the clip' },
+  { key: 'extracting_frames', label: 'Reading the video', model: 'ffmpeg · 10 frames a second' },
+  { key: 'segmenting', label: 'Segmenting holds', model: 'facebook/sam3.1' },
+  { key: 'estimating_pose', label: 'Tracking the climber', model: 'vitpose-plus-large' },
+  { key: 'analyzing_moves', label: 'Reading the route', model: 'in your browser' },
+  { key: 'coaching', label: 'Coach notes', model: 'VLM · optional' },
 ]
 
-function AnalyzeOverlay({ live, color, onCancel }: { live: { stages: Partial<Record<StageKey, StageEvent>>; upload: number; started: number; file: Detected }; color: string; onCancel: () => void }) {
+function AnalyzeOverlay({ run, color, onRetry, onClose }: { run: Run; color: string; onRetry: () => void; onClose: () => void }) {
   const [now, setNow] = useState(Date.now())
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 100); return () => clearInterval(id) }, [])
   const route = ROUTE_COLORS[color] ?? ROUTE_COLORS.green
-  const statusOf = (k: StageKey) => {
-    if (k === 'upload') return live.stages.upload?.status === 'done' ? 'done' : 'running'
-    return live.stages[k]?.status ?? 'pending'
-  }
+  const elapsed = ((run.finished ?? now) - run.started) / 1000
+  const failed = run.phase === 'error', empty = run.phase === 'empty', done = run.phase === 'complete'
   return (
     <motion.div className="analyze" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-      <motion.div className="analyze-card" initial={{ scale: 0.96, y: 20 }} animate={{ scale: 1, y: 0 }} style={{ ['--route' as string]: route }}>
+      <motion.div className={`analyze-card ${failed ? 'failed' : ''}`} initial={{ scale: 0.96, y: 20 }} animate={{ scale: 1, y: 0 }} style={{ ['--route' as string]: route }}>
         <div className="analyze-video">
-          <video src={live.file.url} autoPlay muted loop playsInline />
-          <div className="scanline" />
-          <div className="scan-grid" />
+          <video src={run.clip.url} autoPlay muted loop playsInline />
+          {!failed && !empty && <><div className="scanline" /><div className="scan-grid" /></>}
           <span className="chip glass"><span className="rec-dot" /> VLM Run</span>
         </div>
         <div className="analyze-body">
-          <span className="kicker">Analyzing · {((now - live.started) / 1000).toFixed(1)} s</span>
-          <h2>Reading your climb</h2>
+          <span className="kicker">{failed ? 'Stopped' : empty ? 'Finished' : done ? 'Done' : 'Analyzing'} · {elapsed.toFixed(1)} s</span>
+          <h2>{failed ? 'Analysis failed' : empty ? 'Nothing to read' : done ? 'Climb read' : 'Reading your climb'}</h2>
           <ul className="stages">
             {STAGES.map((st) => {
-              const s = statusOf(st.key)
-              const ev = live.stages[st.key]
+              const s = run.stages[st.key]
+              const shown = s.status === 'pending' && (failed || empty) ? 'not run' : null
               return (
-                <li key={st.key} className={s}>
-                  <span className="st-icon">{s === 'done' ? <CheckCircle2 size={17} /> : s === 'running' ? <Loader2 size={17} className="spin" /> : s === 'skipped' ? <CheckCircle2 size={17} /> : <span className="st-dot" />}</span>
+                <li key={st.key} className={s.status}>
+                  <span className="st-icon">{s.status === 'done' ? <CheckCircle2 size={17} /> : s.status === 'running' ? <Loader2 size={17} className="spin" /> : s.status === 'error' ? <XCircle size={17} /> : s.status === 'skipped' ? <SearchX size={17} /> : <span className="st-dot" />}</span>
                   <span className="st-text">
                     <b>{st.label}</b>
-                    <em>{st.key === 'upload' && s !== 'done' ? `${Math.round(live.upload * 100)}%` : ev?.detail ?? st.model ?? ''}</em>
-                    {st.key === 'transcode' && s === 'running' && ev?.progress != null && <span className="st-bar"><i style={{ width: `${ev.progress * 100}%` }} /></span>}
+                    <em>{shown ?? s.detail ?? st.model ?? ''}</em>
+                    {s.status === 'running' && s.progress != null && st.key !== 'coaching' && <span className="st-bar"><i style={{ width: `${s.progress * 100}%` }} /></span>}
                   </span>
                 </li>
               )
             })}
           </ul>
-          <button className="btn ghost" onClick={onCancel}>Cancel</button>
+          {failed && run.error?.checks && (
+            <ul className="failed-checks">{run.error.checks.map((c) => <li key={c.id}><b>{c.label}</b> — {c.detail}</li>)}</ul>
+          )}
+          {empty && <p className="muted empty-note">{run.empty}</p>}
+          <div className="analyze-actions">
+            {(failed || empty) && <button className="btn primary" onClick={onRetry}><RotateCcw size={15} /> Retry</button>}
+            <button className="btn ghost" onClick={onClose}>{failed || empty ? 'Close' : 'Cancel'}</button>
+            {import.meta.env.DEV && run.debug && <a className="link debug-link" href={run.debug} target="_blank" rel="noreferrer">debug log</a>}
+          </div>
         </div>
       </motion.div>
     </motion.div>

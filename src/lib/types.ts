@@ -1,6 +1,8 @@
 // The session model every view reads, and the pipeline's own JSON shapes it is
 // built from (github.com/jeremyipark/vision-demos → rock_climbing, rock_climbing_3d).
 
+import type { HoldSighting, MotionTrack } from './motion'
+
 export type LimbKey = 'left_hand' | 'right_hand' | 'left_foot' | 'right_foot'
 export type Vec2 = [number, number]
 
@@ -107,11 +109,34 @@ export interface SessionVideo {
   webm?: string // VP9 fallback for browsers without H.264
   poster?: string
   offset: number // video seconds at which the climb clock reads 0
-  affine?: number[][] // canvas-normalized → video-normalized, 2×3
+  affine?: number[][] // canvas-normalized → video-normalized, 2×3, for a still camera
+  motion?: MotionTrack // …or per sampled frame, for a camera that moved
+  sightings?: Record<number, HoldSighting[]> // each hold's own SAM outlines, video 0–1
   width?: number
   height?: number
+  duration?: number // real seconds of the clip
   overlays?: 'burned-in' | 'none'
-  mediaId?: string // server-side transcode, for the coach to watch
+  mediaId?: string // server-side copy, for the coach to watch
+}
+
+/** The climber as ViTPose+ saw them: per frame, video seconds and COCO-17
+ *  keypoints flattened as [x, y, confidence] × 17, video 0–1. */
+export interface PoseTrack { t: number[]; k: number[][] }
+
+export interface Check { id: string; label: string; ok: boolean; severity: 'error' | 'warn'; detail: string }
+
+/** Where a live session came from and what was checked before it was opened. */
+export interface LiveAnalysis {
+  runId: string
+  analyzedAt: string
+  source: { name: string; duration: number; fps: number; width: number; height: number; frameCount: number; sourceFormat: string; bytes: number }
+  analysis: { fps: number; width: number; height: number; frameCount: number; duration: number }
+  sam: { model: string; prompt: string; samples: number; tracks: number; detections: number; coords: string; span: [number, number] | null }
+  pose: { model: string; framesPosed: number; people: number; coords: string; keypoints: string; span: [number, number] | null }
+  reading: import('./analyze').ReadStats
+  validation: Check[]
+  warnings: string[]
+  debug?: string | null
 }
 
 export interface Session {
@@ -145,6 +170,8 @@ export interface Session {
   coach?: CoachFeedback
   models?: { holds?: string; pose?: string }
   usage?: { costUsd?: number }
+  pose?: PoseTrack
+  analysis?: LiveAnalysis
 }
 
 // ── pipeline JSON (what rock_climbing writes to data/output/<stamp>/) ────────
@@ -237,7 +264,7 @@ export interface ClimbrManifest {
   credit?: string
   label?: string
   canvas?: { width: number; height: number }
-  video?: { src: string; webm?: string; poster?: string; clock_offset?: number; affine?: number[][]; width?: number; height?: number; overlays?: 'burned-in' | 'none' }
+  video?: { src: string; webm?: string; poster?: string; clock_offset?: number; affine?: number[][]; width?: number; height?: number; duration?: number; overlays?: 'burned-in' | 'none' }
   wall?: { src: string; affine: number[][] }
   torso?: [number, number, number][]
   scale?: { meters_per_unit: number; floor_y: number; source?: 'estimated' | 'lidar' }

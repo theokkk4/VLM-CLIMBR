@@ -1,12 +1,14 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { Box, Brain, Download, GitCompareArrows, Play } from 'lucide-react'
+import { AlertTriangle, Box, Brain, Bug, Download, GitCompareArrows, Play } from 'lucide-react'
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { DebugPanel } from '../components/DebugPanel'
 import { ExportSheet } from '../components/ExportSheet'
 import { LivePanel } from '../components/LivePanel'
 import { RoutePanel } from '../components/RoutePanel'
 import { TimelineBar, type ViewOpts } from '../components/TimelineBar'
 import { VideoStage } from '../components/VideoStage'
 import type { Health } from '../lib/api'
+import { sessionProblem } from '../lib/live'
 import { createPlayer, finaleSchedule, usePlayer } from '../lib/player'
 import { getPrefs, setPrefs } from '../lib/store'
 import { buildTimeline } from '../lib/timeline'
@@ -30,7 +32,9 @@ export function SessionView({ session: s, health, onUpdate }: { session: Session
     const climbEnd = tl.climbEnd
     const offset = s.video?.offset ?? 0
     const fin = finaleSchedule(climbEnd, s.sequence.length)
-    return createPlayer({ start: s.video ? -offset : -0.4, end: s.toppedOut ? fin.end : climbEnd + 0.5, climbEnd, offset })
+    // The whole clip stays reachable, before the start and after the top-out.
+    const clipEnd = s.video?.duration ? s.video.duration - offset : -Infinity
+    return createPlayer({ start: s.video ? -offset : -0.4, end: Math.max(s.toppedOut ? fin.end : climbEnd + 0.5, clipEnd), climbEnd, offset })
   }, [s, tl])
   useEffect(() => player.run(), [player])
   const ps = usePlayer(player)
@@ -41,6 +45,8 @@ export function SessionView({ session: s, health, onUpdate }: { session: Session
   const [cardDismissed, setCardDismissed] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
   const [highlight, setHighlight] = useState<number[]>([])
+  const [debugOpen, setDebugOpen] = useState(false)
+  const problem = sessionProblem(s)
 
   useEffect(() => { if (ps.t < tl.climbEnd) setCardDismissed(false) }, [ps.t, tl.climbEnd])
   const showCard = s.toppedOut && ps.t >= tl.climbEnd + 0.35 && !cardDismissed && tab === 'replay'
@@ -89,9 +95,13 @@ export function SessionView({ session: s, health, onUpdate }: { session: Session
           ))}
         </div>
         <div className="sh-actions">
+          {import.meta.env.DEV && s.analysis && <button className="btn ghost" onClick={() => setDebugOpen((o) => !o)} title="Run details (development only)"><Bug size={15} /> Debug</button>}
           <button className="btn primary" onClick={() => setExportOpen(true)}><Download size={15} /> Export</button>
         </div>
       </div>
+      {problem && (
+        <div className="banner warn"><AlertTriangle size={15} /><span>{problem}</span><a className="link" href="#/import">Re-import</a></div>
+      )}
 
       <AnimatePresence mode="wait">
         {tab === 'replay' && (
@@ -138,6 +148,7 @@ export function SessionView({ session: s, health, onUpdate }: { session: Session
       </AnimatePresence>
 
       <AnimatePresence>{exportOpen && <ExportSheet session={s} onClose={() => setExportOpen(false)} />}</AnimatePresence>
+      <AnimatePresence>{debugOpen && s.analysis && <DebugPanel session={s} onClose={() => setDebugOpen(false)} />}</AnimatePresence>
     </motion.section>
   )
 }

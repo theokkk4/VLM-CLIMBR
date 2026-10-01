@@ -164,7 +164,7 @@ export default function Scan3D({ session: s, tl, player, letters }: { session: S
             {s.sequence.length} holds used <span className="dotsep">·</span> wall {model.angleDeg.toFixed(0)}° {model.angleDeg >= 0 ? 'overhang' : 'slab'}
           </motion.h2>
           <p>
-            {source === 'lidar' ? 'reconstructed in 3D from iPhone LiDAR' : source === 'photo' ? 'depth simulated from the 2D clip · import wall.ply from an iPhone LiDAR capture for the measured scan' : source === 'procedural' ? 'route placed on a modelled wall · add a LiDAR scan for the real one' : 'reading depth…'}
+            {source === 'lidar' ? 'reconstructed in 3D from iPhone LiDAR' : source === 'photo' ? 'depth simulated from the 2D clip' : source === 'procedural' ? 'route placed on a modelled wall' : 'reading depth…'}
             {cloud && <span className="muted"> · {cloud.count.toLocaleString()} points</span>}
           </p>
         </div>
@@ -175,6 +175,7 @@ export default function Scan3D({ session: s, tl, player, letters }: { session: S
           ))}
         </div>
 
+        <div className="scan-side">
         <div className="scan-metrics">
           {[
             { k: 'Off the ground', v: `${heightM.toFixed(2)} m`, accent: true },
@@ -187,6 +188,11 @@ export default function Scan3D({ session: s, tl, player, letters }: { session: S
               <b>{x.v}</b>
             </motion.div>
           ))}
+        </div>
+        <div className="scan-clock">
+          <b>{clock.toFixed(2)} s</b>
+          <span>{s.climber}</span>
+        </div>
         </div>
 
         <div className="scan-foot">
@@ -208,10 +214,6 @@ export default function Scan3D({ session: s, tl, player, letters }: { session: S
                 })}
               </AnimatePresence>
             </div>
-          </div>
-          <div className="scan-clock">
-            <b>{clock.toFixed(2)} s</b>
-            <span>{s.climber}</span>
           </div>
         </div>
 

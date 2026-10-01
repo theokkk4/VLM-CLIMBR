@@ -2,6 +2,7 @@
 
 import { buildSession, type SessionParts } from './session'
 import type { ClimbrManifest, PipelineClimb, PipelineComparison, PipelineHold, PipelineSequence, Session } from './types'
+import { checkResult, type AnalyzeResult } from './vlm'
 
 export interface Health {
   ok: boolean
@@ -9,6 +10,8 @@ export interface Health {
   gateway?: string
   models?: { holds: string; pose: string; coach: string }
   ffmpeg?: boolean
+  analysis?: { fps: number; maxSeconds: number }
+  debug?: boolean
   platform?: 'node' | 'vercel'
   uploads?: 'direct' | 'blob' | 'none'
 }
@@ -23,37 +26,64 @@ export async function health(): Promise<Health> {
   }
 }
 
-export type StageKey = 'upload' | 'transcode' | 'holds' | 'pose' | 'read'
-export interface StageEvent { type: 'stage'; stage: StageKey; status: 'running' | 'done' | 'skipped' | 'error'; detail?: string; progress?: number }
-export interface AnalyzeResult { type: 'result'; id: string; video: string | null; meta: { width: number; height: number; fps: number; duration: number; color: string; prompt: string }; holds: any; poses: any; usage?: any }
+/** The run's stages, in order. The server reports the first four; the browser
+ *  reads the route and, if it can, asks the coach. */
+export const STAGE_KEYS = ['uploading', 'extracting_frames', 'segmenting', 'estimating_pose', 'analyzing_moves', 'coaching'] as const
+export type StageKey = (typeof STAGE_KEYS)[number]
+export interface StageEvent { type: 'stage'; stage: StageKey; status: 'running' | 'done' | 'skipped' | 'error'; detail?: string; progress?: number; data?: any }
 
-export interface LiveOptions { color: string; health: Health | null; meta?: { width: number; height: number; duration: number } }
+/** A failure, tagged with the stage it happened in. */
+export class StageError extends Error {
+  stage: StageKey | null
+  constructor(message: string, stage: StageKey | null) {
+    super(message)
+    this.stage = stage
+  }
+}
+
+export interface LiveOptions { color: string; health: Health | null }
 
 /** Upload a clip and stream the analysis. Locally it goes straight to the
  *  server; on Vercel it goes to Blob storage first (function bodies are capped
- *  at 4.5 MB) and the function reads it from there. */
+ *  at 4.5 MB) and the function reads it from there. Resolves with the server's
+ *  result, shape-checked; rejects with a StageError naming the failed stage. */
 export async function analyzeLive(file: File, opts: LiveOptions, onEvent: (e: StageEvent) => void, onUpload?: (p: number) => void, signal?: AbortSignal): Promise<AnalyzeResult> {
-  if (opts.health?.platform !== 'vercel') return analyzeDirect(file, opts.color, onEvent, onUpload, signal)
-  if (opts.health.uploads !== 'blob') throw new Error('Live analysis on Vercel needs a Blob store: Vercel → Storage → Create → Blob, connect it to this project, then redeploy.')
+  const raw = opts.health?.platform === 'vercel' ? await analyzeViaBlob(file, opts, onEvent, onUpload, signal) : await analyzeDirect(file, opts.color, onEvent, onUpload, signal)
+  try {
+    return checkResult(raw)
+  } catch (e) {
+    throw new StageError((e as Error).message, 'analyzing_moves')
+  }
+}
+
+async function analyzeViaBlob(file: File, opts: LiveOptions, onEvent: (e: StageEvent) => void, onUpload?: (p: number) => void, signal?: AbortSignal): Promise<unknown> {
+  if (opts.health?.uploads !== 'blob') throw new StageError('Live analysis on Vercel needs a Blob store: Vercel → Storage → Create → Blob, connect it to this project, then redeploy.', 'uploading')
   const { upload } = await import('@vercel/blob/client')
-  const blob = await upload(`clips/${file.name}`, file, {
-    access: 'public',
-    handleUploadUrl: '/api/upload',
-    contentType: file.type || 'video/mp4',
-    multipart: file.size > 20 * 1024 * 1024,
-    onUploadProgress: (e) => onUpload?.(e.percentage / 100),
-    abortSignal: signal,
-  })
+  let blob
+  try {
+    blob = await upload(`clips/${file.name}`, file, {
+      access: 'public',
+      handleUploadUrl: '/api/upload',
+      contentType: file.type || 'video/mp4',
+      multipart: file.size > 20 * 1024 * 1024,
+      onUploadProgress: (e) => onUpload?.(e.percentage / 100),
+      abortSignal: signal,
+    })
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') throw e
+    throw new StageError(`Upload to Vercel Blob failed: ${(e as Error).message}`, 'uploading')
+  }
   const res = await fetch('/api/analyze', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url: blob.url, color: opts.color, meta: opts.meta ? { ...opts.meta, fps: 30 } : undefined }),
+    body: JSON.stringify({ url: blob.url, color: opts.color, name: file.name }),
     signal,
   })
-  if (!res.body) throw new Error(`Server ${res.status}`)
+  if (!res.body) throw new StageError(`The server answered ${res.status} with no stream.`, null)
   const reader = res.body.getReader()
   const dec = new TextDecoder()
   let buffer = ''
+  let last: StageKey | null = 'uploading'
   for (;;) {
     const { value, done } = await reader.read()
     if (done) break
@@ -64,15 +94,15 @@ export async function analyzeLive(file: File, opts: LiveOptions, onEvent: (e: St
       buffer = buffer.slice(nl + 1)
       if (!line) continue
       const e = JSON.parse(line)
-      if (e.type === 'stage') onEvent(e)
-      else if (e.type === 'error') throw new Error(e.message)
+      if (e.type === 'stage') { last = e.stage; onEvent(e) }
+      else if (e.type === 'error') throw new StageError(e.message, e.stage ?? last)
       else if (e.type === 'result') return e
     }
   }
-  throw new Error(res.ok ? 'The analysis ended without a result (it may have hit the function time limit).' : `Server ${res.status}`)
+  throw new StageError(res.ok ? 'The analysis stopped without a result — it may have hit the function’s time limit.' : `Server ${res.status}`, last)
 }
 
-function analyzeDirect(file: File, color: string, onEvent: (e: StageEvent) => void, onUpload?: (p: number) => void, signal?: AbortSignal): Promise<AnalyzeResult> {
+function analyzeDirect(file: File, color: string, onEvent: (e: StageEvent) => void, onUpload?: (p: number) => void, signal?: AbortSignal): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const form = new FormData()
     form.append('video', file)
@@ -80,8 +110,9 @@ function analyzeDirect(file: File, color: string, onEvent: (e: StageEvent) => vo
     // XHR rather than fetch for upload progress; the response is NDJSON, read as it grows.
     const xhr = new XMLHttpRequest()
     xhr.open('POST', '/api/analyze')
-    let seen = 0, buffer = ''
-    let result: AnalyzeResult | null = null
+    let seen = 0, buffer = '', settled = false
+    let last: StageKey | null = 'uploading'
+    const fail = (err: Error) => { if (!settled) { settled = true; reject(err) } }
     const pump = () => {
       buffer += xhr.responseText.slice(seen)
       seen = xhr.responseText.length
@@ -90,25 +121,29 @@ function analyzeDirect(file: File, color: string, onEvent: (e: StageEvent) => vo
         const line = buffer.slice(0, nl).trim()
         buffer = buffer.slice(nl + 1)
         if (!line) continue
-        try {
-          const e = JSON.parse(line)
-          if (e.type === 'stage') onEvent(e)
-          else if (e.type === 'result') result = e
-          else if (e.type === 'error') { reject(new Error(e.message)); xhr.abort() }
-        } catch { /* partial line */ }
+        let e: any
+        try { e = JSON.parse(line) } catch { fail(new StageError(`The server sent a line that is not JSON: ${line.slice(0, 120)}`, last)); return }
+        if (e.type === 'stage') { last = e.stage; onEvent(e) }
+        else if (e.type === 'result') { if (!settled) { settled = true; resolve(e) } }
+        else if (e.type === 'error') { fail(new StageError(e.message, e.stage ?? last)); xhr.abort() }
       }
     }
     xhr.upload.onprogress = (e) => e.lengthComputable && onUpload?.(e.loaded / e.total)
     xhr.onprogress = pump
     xhr.onload = () => {
       pump()
-      if (result) resolve(result)
-      else if (xhr.status >= 400) reject(new Error(`Server ${xhr.status}`))
+      if (!settled) fail(new StageError(xhr.status >= 400 ? `Server ${xhr.status}: ${xhr.responseText.slice(0, 200)}` : 'The analysis stopped without a result.', last))
     }
-    xhr.onerror = () => reject(new Error('Could not reach the CLIMBR server. Is `npm run dev` running?'))
-    signal?.addEventListener('abort', () => { xhr.abort(); reject(new DOMException('Cancelled', 'AbortError')) })
+    xhr.onerror = () => fail(new StageError('Could not reach the CLIMBR server. Is `npm run dev` running?', last))
+    signal?.addEventListener('abort', () => { xhr.abort(); fail(new DOMException('Cancelled', 'AbortError')) })
     xhr.send(form)
   })
+}
+
+/** Development only: the browser's half of a run, filed beside the server's. */
+export function reportRun(id: string, report: unknown) {
+  if (!import.meta.env.DEV) return
+  void fetch(`/api/debug/runs/${encodeURIComponent(id)}/client`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(report) }).catch(() => {})
 }
 
 export async function loadExample(id = 'green-vb'): Promise<Session> {
