@@ -2,6 +2,7 @@
 // always available. VLM: the same measurements (and, when the server has it,
 // the clip itself) sent through VLM Run to a multimodal model.
 
+import { sampleFrames } from './frames'
 import { clamp } from './geometry'
 import { LIMBS, LIMB_BY_KEY, type CoachFeedback, type LimbKey, type Session } from './types'
 
@@ -187,10 +188,11 @@ export function analyticsFor(s: Session) {
 }
 
 export async function requestVlmCoach(s: Session, signal?: AbortSignal): Promise<CoachFeedback> {
+  const frames = await sampleFrames(s)
   const res = await fetch('/api/coach', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ analytics: analyticsFor(s), exampleId: s.exampleId, mediaId: s.video?.mediaId }),
+    body: JSON.stringify({ analytics: analyticsFor(s), frames, exampleId: s.exampleId, mediaId: s.video?.mediaId }),
     signal,
   })
   const j = await res.json().catch(() => ({}))

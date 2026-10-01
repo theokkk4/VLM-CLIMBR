@@ -108,7 +108,7 @@ export function ImportView({ health, onSession }: { health: Health | null; onSes
     abort.current = ctl
     setLive({ stages: {}, upload: 0, started: Date.now(), file: video })
     try {
-      const r = await analyzeLive(video.file, { color }, (e) => setLive((l) => l && { ...l, stages: { ...l.stages, [e.stage]: e } }), (p) => setLive((l) => l && { ...l, upload: p }), ctl.signal)
+      const r = await analyzeLive(video.file, { color, health, meta: video.data ? { width: video.data.w, height: video.data.h, duration: video.data.dur } : undefined }, (e) => setLive((l) => l && { ...l, stages: { ...l.stages, [e.stage]: e } }), (p) => setLive((l) => l && { ...l, upload: p }), ctl.signal)
       setLive((l) => l && { ...l, stages: { ...l.stages, read: { type: 'stage', stage: 'read', status: 'running' } } })
       await new Promise((res) => setTimeout(res, 400))
       const a = analyzePayloads(r.holds, r.poses, { color, aspect: r.meta.width / r.meta.height, fps: r.meta.fps })
@@ -117,7 +117,7 @@ export function ImportView({ health, onSession }: { health: Health | null; onSes
           climbr: 1,
           canvas: { width: r.meta.width, height: r.meta.height },
           torso: a.torso,
-          video: { src: r.video, clock_offset: (a.startFrame ?? 0) / r.meta.fps, affine: [[1, 0, 0], [0, 1, 0]], width: r.meta.width, height: r.meta.height, overlays: 'none' },
+          video: { src: r.video ?? video.url!, clock_offset: (a.startFrame ?? 0) / r.meta.fps, affine: [[1, 0, 0], [0, 1, 0]], width: r.meta.width, height: r.meta.height, overlays: 'none' },
           models: { holds: 'facebook/sam3.1', pose: 'usyd-community/vitpose-plus-large' },
         },
         climb: a.climb,
@@ -125,7 +125,7 @@ export function ImportView({ health, onSession }: { health: Health | null; onSes
         kind: 'live',
         meta: { title: title || undefined, climber: climber || undefined, route: { color, grade } },
       })
-      s.video!.mediaId = `${r.id}.mp4`
+      if (r.video) s.video!.mediaId = `${r.id}.mp4`
       const cost = (r.usage?.holds?.cost ?? 0) + (r.usage?.pose?.cost ?? 0)
       s.usage = { costUsd: cost }
       setLive((l) => l && { ...l, stages: { ...l.stages, read: { type: 'stage', stage: 'read', status: 'done', detail: `${a.climb.sequence?.length} holds used · ${a.climb.elapsed_seconds != null ? a.climb.elapsed_seconds.toFixed(2) + ' s' : 'no top-out'}` } } })
@@ -246,7 +246,8 @@ export function ImportView({ health, onSession }: { health: Health | null; onSes
                 Open replay <ArrowRight size={15} />
               </button>
             )}
-            {state.needsLive && !health?.connected && <p className="muted xs">Live analysis needs the CLIMBR server with a <code>VLMRUN_API_KEY</code> in <code>.env</code>.</p>}
+            {state.needsLive && !health?.connected && <p className="muted xs">Live analysis needs the CLIMBR server with a <code>VLMRUN_API_KEY</code> in <code>.env</code> (or in the Vercel project’s environment variables).</p>}
+            {state.needsLive && health?.connected && health.uploads === 'none' && <p className="muted xs">On Vercel, live analysis also needs a Blob store (Storage → Blob → connect to this project).</p>}
             {state.needsLive && health?.connected && <p className="muted xs">SAM 3.1 tracks the {color} holds and ViTPose+ poses every frame — usually under a minute and a few cents.</p>}
           </div>
 

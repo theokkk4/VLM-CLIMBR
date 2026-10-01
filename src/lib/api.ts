@@ -9,6 +9,8 @@ export interface Health {
   gateway?: string
   models?: { holds: string; pose: string; coach: string }
   ffmpeg?: boolean
+  platform?: 'node' | 'vercel'
+  uploads?: 'direct' | 'blob' | 'none'
 }
 
 export async function health(): Promise<Health> {
@@ -23,22 +25,66 @@ export async function health(): Promise<Health> {
 
 export type StageKey = 'upload' | 'transcode' | 'holds' | 'pose' | 'read'
 export interface StageEvent { type: 'stage'; stage: StageKey; status: 'running' | 'done' | 'skipped' | 'error'; detail?: string; progress?: number }
-export interface AnalyzeResult { type: 'result'; id: string; video: string; meta: { width: number; height: number; fps: number; duration: number; color: string; prompt: string }; holds: any; poses: any; usage?: any }
+export interface AnalyzeResult { type: 'result'; id: string; video: string | null; meta: { width: number; height: number; fps: number; duration: number; color: string; prompt: string }; holds: any; poses: any; usage?: any }
 
-export function analyzeLive(file: File, opts: { color: string }, onEvent: (e: StageEvent) => void, onUpload?: (p: number) => void, signal?: AbortSignal): Promise<AnalyzeResult> {
+export interface LiveOptions { color: string; health: Health | null; meta?: { width: number; height: number; duration: number } }
+
+/** Upload a clip and stream the analysis. Locally it goes straight to the
+ *  server; on Vercel it goes to Blob storage first (function bodies are capped
+ *  at 4.5 MB) and the function reads it from there. */
+export async function analyzeLive(file: File, opts: LiveOptions, onEvent: (e: StageEvent) => void, onUpload?: (p: number) => void, signal?: AbortSignal): Promise<AnalyzeResult> {
+  if (opts.health?.platform !== 'vercel') return analyzeDirect(file, opts.color, onEvent, onUpload, signal)
+  if (opts.health.uploads !== 'blob') throw new Error('Live analysis on Vercel needs a Blob store: Vercel → Storage → Create → Blob, connect it to this project, then redeploy.')
+  const { upload } = await import('@vercel/blob/client')
+  const blob = await upload(`clips/${file.name}`, file, {
+    access: 'public',
+    handleUploadUrl: '/api/upload',
+    contentType: file.type || 'video/mp4',
+    multipart: file.size > 20 * 1024 * 1024,
+    onUploadProgress: (e) => onUpload?.(e.percentage / 100),
+    abortSignal: signal,
+  })
+  const res = await fetch('/api/analyze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url: blob.url, color: opts.color, meta: opts.meta ? { ...opts.meta, fps: 30 } : undefined }),
+    signal,
+  })
+  if (!res.body) throw new Error(`Server ${res.status}`)
+  const reader = res.body.getReader()
+  const dec = new TextDecoder()
+  let buffer = ''
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += dec.decode(value, { stream: true })
+    let nl
+    while ((nl = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, nl).trim()
+      buffer = buffer.slice(nl + 1)
+      if (!line) continue
+      const e = JSON.parse(line)
+      if (e.type === 'stage') onEvent(e)
+      else if (e.type === 'error') throw new Error(e.message)
+      else if (e.type === 'result') return e
+    }
+  }
+  throw new Error(res.ok ? 'The analysis ended without a result (it may have hit the function time limit).' : `Server ${res.status}`)
+}
+
+function analyzeDirect(file: File, color: string, onEvent: (e: StageEvent) => void, onUpload?: (p: number) => void, signal?: AbortSignal): Promise<AnalyzeResult> {
   return new Promise((resolve, reject) => {
     const form = new FormData()
     form.append('video', file)
-    form.append('color', opts.color)
+    form.append('color', color)
     // XHR rather than fetch for upload progress; the response is NDJSON, read as it grows.
     const xhr = new XMLHttpRequest()
     xhr.open('POST', '/api/analyze')
     let seen = 0, buffer = ''
     let result: AnalyzeResult | null = null
     const pump = () => {
-      const chunk = xhr.responseText.slice(seen)
+      buffer += xhr.responseText.slice(seen)
       seen = xhr.responseText.length
-      buffer += chunk
       let nl
       while ((nl = buffer.indexOf('\n')) >= 0) {
         const line = buffer.slice(0, nl).trim()

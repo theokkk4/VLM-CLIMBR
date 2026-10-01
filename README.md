@@ -18,6 +18,17 @@ Without a key, everything except live analysis and the VLM coach still works: th
 
 For production, run `npm run build && npm start`. That serves `dist/` and the API from one process on port 8787.
 
+## Deploy to Vercel
+
+1. Import the repo at [vercel.com/new](https://vercel.com/new). `vercel.json` already sets the Vite build and the `api/` functions, so keep the defaults.
+2. **Settings → Environment Variables:** add `VLMRUN_API_KEY`.
+3. **For live video analysis:** go to **Storage → Create → Blob** and connect the store to the project. That adds `BLOB_READ_WRITE_TOKEN`. Clips are bigger than a function's 4.5 MB request limit, so the browser uploads them to Blob, `api/analyze` reads them from there, and deletes them when done.
+4. Redeploy.
+
+Without Blob, everything else still works: the example, imports, pasted JSON, the 3D view, the VLM coach and exports. The Import page says what's missing.
+
+The functions bundle `ffmpeg-static`, so clips (including iPhone `.mov`) are transcoded on Vercel exactly as they are locally. `api/analyze` runs up to 300 s, the Hobby maximum; a typical climb takes 20–40 s. The coach cuts its 8 keyframes in the browser, so it needs no ffmpeg at all.
+
 ## What's in it
 
 | | |
@@ -73,7 +84,9 @@ The bundled example lives in `public/examples/green-vb/`. Its `gateway/` folder 
 ## Project layout
 
 ```
-server/            Express API: VLM Run proxy, ffmpeg transcode + keyframes, coach prompt
+server/core.mjs    the API itself: VLM Run client, transcode, SAM 3.1 + ViTPose+, coach
+server/index.mjs   Express wrapper for local runs and `npm start`
+api/               the same core as Vercel functions (health, analyze, upload, coach)
 src/lib/           session model, route reader, timeline + climber IK, 3D cloud, coach, exports, storage
 src/components/    route panel (SVG), video stage, timeline, live stats, 3D scan (react-three-fiber), export sheet
 src/views/         onboarding, home, session (replay · 3D · attempts · coach), import
