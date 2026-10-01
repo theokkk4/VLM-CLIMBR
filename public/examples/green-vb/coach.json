@@ -1,0 +1,64 @@
+{
+  "headline": "Fastest send: short beta, 1.6s under average",
+  "summary": "You sent The Green Slab in 11.8s on the shortest beta of the session, skipping 7 holds to keep things clean. Your right foot anchored on hold 2 for nearly half the climb, letting the other limbs move freely. The one wobble was a 1.8s read between hold 15 and your left foot's move to 10.",
+  "score": 82,
+  "scores": {
+    "efficiency": 88,
+    "flow": 76,
+    "footwork": 74,
+    "pacing": 80
+  },
+  "strengths": [
+    {
+      "title": "Shortest beta of session",
+      "detail": "You skipped 7 of 16 holds, cutting readjustments and finishing 1.6s faster than your session average. Fewer touches kept the climb crisp."
+    },
+    {
+      "title": "Stable right-foot anchor",
+      "detail": "Hold 2 carried your right foot for 4.61s, anchoring the body while hands and left foot cycled through the middle section."
+    },
+    {
+      "title": "Clean matched-hand transitions",
+      "detail": "Both hands shared holds 7, 10, 12, and 16, giving you natural rest points without breaking rhythm."
+    }
+  ],
+  "focus": [
+    {
+      "title": "1.8s read mid-climb",
+      "detail": "No new placement between 6.80s and 8.63s while your right hand sat on 15. Scanning the next move from the ground would close this gap.",
+      "time": 6.8,
+      "holds": [
+        15,
+        10
+      ]
+    },
+    {
+      "title": "Left foot hanging 21%",
+      "detail": "Your left foot was off a hold for nearly a quarter of the climb, shifting load to the arms. Placing it earlier keeps tension balanced.",
+      "time": null,
+      "holds": [
+        5,
+        10
+      ]
+    }
+  ],
+  "drills": [
+    {
+      "name": "Pre-scan from ground",
+      "how": "Before stepping on, walk the route from the floor and call out each hand and foot placement. This shrinks in-climb reading pauses.",
+      "dose": "Every session, 2 routes"
+    },
+    {
+      "name": "Foot-first movement",
+      "how": "Drill moves where the foot lands before the hand reaches. This trains the habit of placing feet early to reduce arm load.",
+      "dose": "3 x 5 reps per session"
+    }
+  ],
+  "beta": "Keep the 9-hold line (7, 1, 2, 10, 12, 5, 6, 15, 16) but pre-place the left foot on 10 before the right hand commits to 15 to eliminate the mid-climb pause.",
+  "next_goal": "Send the same 9-hold beta in under 10.5s with the left foot on a hold 85%+ of the time.",
+  "source": "vlm",
+  "model": "qwen/qwen3.8-27b",
+  "watchedVideo": true,
+  "frames": 8,
+  "generatedAt": "2026-10-01T16:53:02Z"
+}

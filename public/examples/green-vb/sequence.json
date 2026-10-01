@@ -1,0 +1,266 @@
+{
+  "video": "IMG_4918.MOV",
+  "label": "IMG_4918",
+  "route": {
+    "color": "green",
+    "grade": "VB",
+    "name": "The Green Slab",
+    "prompt": "green climbing hold"
+  },
+  "topped_out": true,
+  "elapsed_seconds": 11.8,
+  "holds_detected": 16,
+  "holds_used": 9,
+  "sequence": [
+    7,
+    1,
+    2,
+    10,
+    12,
+    5,
+    6,
+    15,
+    16
+  ],
+  "sequence_aligned": [
+    7,
+    1,
+    2,
+    10,
+    12,
+    5,
+    6,
+    15,
+    16
+  ],
+  "first_limb_by_hold": {
+    "1": "left_foot",
+    "2": "right_foot",
+    "5": "left_foot",
+    "6": "right_foot",
+    "7": "left_hand",
+    "10": "right_hand",
+    "12": "right_hand",
+    "15": "right_hand",
+    "16": "left_hand"
+  },
+  "moves": [
+    {
+      "step": 1,
+      "hold_id": 7,
+      "limb": "left_hand",
+      "limb_label": "LH",
+      "time": 0.0,
+      "contact_seconds": 2.583
+    },
+    {
+      "step": 2,
+      "hold_id": 7,
+      "limb": "right_hand",
+      "limb_label": "RH",
+      "time": 0.0,
+      "contact_seconds": 1.183
+    },
+    {
+      "step": 3,
+      "hold_id": 1,
+      "limb": "left_foot",
+      "limb_label": "LF",
+      "time": 0.02,
+      "contact_seconds": 2.613
+    },
+    {
+      "step": 4,
+      "hold_id": 2,
+      "limb": "right_foot",
+      "limb_label": "RF",
+      "time": 0.25,
+      "contact_seconds": 4.613
+    },
+    {
+      "step": 5,
+      "hold_id": 10,
+      "limb": "right_hand",
+      "limb_label": "RH",
+      "time": 1.3,
+      "contact_seconds": 1.483
+    },
+    {
+      "step": 6,
+      "hold_id": 10,
+      "limb": "left_hand",
+      "limb_label": "LH",
+      "time": 2.74,
+      "contact_seconds": 2.293
+    },
+    {
+      "step": 7,
+      "hold_id": 12,
+      "limb": "right_hand",
+      "limb_label": "RH",
+      "time": 2.9,
+      "contact_seconds": 3.783
+    },
+    {
+      "step": 8,
+      "hold_id": 5,
+      "limb": "left_foot",
+      "limb_label": "LF",
+      "time": 4.55,
+      "contact_seconds": 3.613
+    },
+    {
+      "step": 9,
+      "hold_id": 12,
+      "limb": "left_hand",
+      "limb_label": "LH",
+      "time": 5.11,
+      "contact_seconds": 3.973
+    },
+    {
+      "step": 10,
+      "hold_id": 6,
+      "limb": "right_foot",
+      "limb_label": "RF",
+      "time": 5.36,
+      "contact_seconds": 4.333
+    },
+    {
+      "step": 11,
+      "hold_id": 15,
+      "limb": "right_hand",
+      "limb_label": "RH",
+      "time": 6.8,
+      "contact_seconds": 4.383
+    },
+    {
+      "step": 12,
+      "hold_id": 10,
+      "limb": "left_foot",
+      "limb_label": "LF",
+      "time": 8.63,
+      "contact_seconds": 3.203
+    },
+    {
+      "step": 13,
+      "hold_id": 16,
+      "limb": "left_hand",
+      "limb_label": "LH",
+      "time": 9.3,
+      "contact_seconds": 2.533
+    },
+    {
+      "step": 14,
+      "hold_id": 10,
+      "limb": "right_foot",
+      "limb_label": "RF",
+      "time": 10.04,
+      "contact_seconds": 1.793
+    },
+    {
+      "step": 15,
+      "hold_id": 16,
+      "limb": "right_hand",
+      "limb_label": "RH",
+      "time": 11.3,
+      "contact_seconds": 0.533
+    }
+  ],
+  "per_limb_sequence": {
+    "left_hand": [
+      7,
+      10,
+      12,
+      16
+    ],
+    "right_hand": [
+      7,
+      10,
+      12,
+      15,
+      16
+    ],
+    "left_foot": [
+      1,
+      5,
+      10
+    ],
+    "right_foot": [
+      2,
+      6,
+      10
+    ]
+  },
+  "comparison": {
+    "reference": "IMG_4917",
+    "ids_aligned": true,
+    "shortest": "IMG_4918",
+    "fastest": "IMG_4918",
+    "shared_holds": [
+      1,
+      2,
+      5,
+      7,
+      10,
+      12,
+      16
+    ],
+    "others": [
+      {
+        "label": "IMG_4919",
+        "sequence": [
+          7,
+          1,
+          2,
+          11,
+          10,
+          3,
+          5,
+          12,
+          6,
+          16
+        ],
+        "holds": 10,
+        "elapsed_seconds": 12.13,
+        "topped_out": true
+      },
+      {
+        "label": "IMG_4917",
+        "sequence": [
+          7,
+          1,
+          2,
+          10,
+          12,
+          3,
+          5,
+          13,
+          6,
+          16
+        ],
+        "holds": 10,
+        "elapsed_seconds": 13.63,
+        "topped_out": true
+      },
+      {
+        "label": "IMG_4920",
+        "sequence": [
+          7,
+          1,
+          2,
+          11,
+          10,
+          3,
+          12,
+          5,
+          14,
+          15,
+          16
+        ],
+        "holds": 11,
+        "elapsed_seconds": 16.03,
+        "topped_out": true
+      }
+    ]
+  }
+}
