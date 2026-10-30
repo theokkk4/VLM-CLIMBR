@@ -290,7 +290,7 @@ export function RoutePanel({ session: s, tl, t, letters = false, backdrop = fals
             )
           })}
 
-          {/* measurements, as the LiDAR finale draws them */}
+          {/* the climb, measured */}
           {inFinale && meters && measure > 0 && (() => {
             const ease = easeOut(measure)
             const [fx] = X([meters.fx, 0])

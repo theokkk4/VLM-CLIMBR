@@ -4,8 +4,7 @@
 // median of what is left at every pixel. The climber is somewhere different in
 // every frame, so the median returns the bare wall. With a camera that moved,
 // each frame is warped by its own camera transform first, so the plate is a
-// mosaic of everything the camera saw. It is what the route backdrop and the 3D
-// point cloud are coloured from.
+// mosaic of everything the camera saw. It is what the route backdrop is drawn from.
 
 import { IDENTITY, invert, motionAt, type Affine } from './motion'
 import type { Session } from './types'

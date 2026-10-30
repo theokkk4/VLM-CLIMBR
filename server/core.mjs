@@ -40,8 +40,40 @@ function loadEnv() {
 }
 const fileEnv = loadEnv()
 export const env = (name, fallback) => process.env[name] || fileEnv[name] || fallback
-export const API_KEY = env('VLMRUN_API_KEY', '')
+let apiKey = env('VLMRUN_API_KEY', '')
+export const getApiKey = () => apiKey
 export const BASE_URL = env('VLMRUN_BASE_URL', 'https://gateway.vlm.run/v1/openai')
+export const REQUIRED_MODELS = ['facebook/sam3.1', 'usyd-community/vitpose-plus-large']
+
+/** Ask the gateway what this key can use. Free, and the only honest test of a key. */
+export async function checkKey(key = apiKey) {
+  if (!key) return { ok: false, status: 0, error: 'No key.', models: [] }
+  let res
+  try {
+    res = await fetch(`${BASE_URL}/models`, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(20_000) })
+  } catch (e) {
+    return { ok: false, status: 0, error: `Could not reach ${BASE_URL}: ${e.cause?.code ?? e.message}`, models: [] }
+  }
+  const j = await res.json().catch(() => ({}))
+  if (!res.ok) return { ok: false, status: res.status, error: res.status === 401 || res.status === 403 ? 'The gateway rejected this key.' : `Gateway ${res.status}: ${JSON.stringify(j).slice(0, 200)}`, models: [] }
+  const models = (j.data ?? []).map((m) => m.id)
+  const missing = REQUIRED_MODELS.filter((m) => !models.includes(m))
+  return { ok: !missing.length, status: res.status, error: missing.length ? `This key cannot use ${missing.join(', ')}.` : null, models, missing, coach: COACH_CHAIN.filter((m) => models.includes(m)) }
+}
+
+/** Save a key the gateway accepted. Local only: on Vercel the key is an
+ *  environment variable. Written to the project's .env, which is gitignored. */
+export function saveKey(key) {
+  if (ON_VERCEL) throw httpError(400, 'On Vercel, set VLMRUN_API_KEY in the project’s environment variables and redeploy.')
+  const file = path.join(ROOT, '.env')
+  const lines = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split(/\r?\n/) : []
+  const i = lines.findIndex((l) => /^\s*#?\s*VLMRUN_API_KEY\s*=/.test(l))
+  if (i >= 0) lines[i] = `VLMRUN_API_KEY=${key}`
+  else lines.push(`VLMRUN_API_KEY=${key}`)
+  fs.writeFileSync(file, lines.filter((l, k, a) => l !== '' || k < a.length - 1).join('\n').replace(/\n*$/, '\n'))
+  apiKey = key
+  process.env.VLMRUN_API_KEY = key
+}
 // Tried in order. Free-tier keys are not entitled to every model, so a 403
 // moves on to the next one, and whichever answered first is remembered.
 const COACH_CHAIN = [...new Set([env('CLIMBR_COACH_MODEL', ''), 'google/gemini-3.7-flash', 'qwen/qwen3.8-27b', 'qwen/qwen3.5-0.8b'].filter(Boolean))]
@@ -62,7 +94,8 @@ export const hasFfmpeg = () => Boolean(FFMPEG)
 export function health() {
   return {
     ok: true,
-    connected: Boolean(API_KEY),
+    connected: Boolean(apiKey),
+    canSaveKey: !ON_VERCEL,
     gateway: BASE_URL.replace(/\/v1\/openai$/, ''),
     models: { holds: HOLD_MODEL, pose: POSE_MODEL, coach: coachModel ?? COACH_CHAIN[0] },
     ffmpeg: Boolean(FFMPEG),
@@ -83,7 +116,7 @@ export function httpError(status, message) {
 }
 
 export async function chat(body, { timeoutMs = 15 * 60_000, signal } = {}) {
-  if (!API_KEY) throw httpError(503, 'No VLMRUN_API_KEY configured. Add it to .env (local) or the project’s environment variables (Vercel).')
+  if (!apiKey) throw httpError(503, 'No VLM Run key. Add it on the Import page, or put VLMRUN_API_KEY in .env (local) or the project’s environment variables (Vercel).')
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(new Error('timeout')), timeoutMs)
   const cancel = () => ctrl.abort(new Error('cancelled'))
@@ -91,7 +124,7 @@ export async function chat(body, { timeoutMs = 15 * 60_000, signal } = {}) {
   try {
     const res = await fetch(`${BASE_URL}/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${API_KEY}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify(body),
       signal: ctrl.signal,
     })
@@ -369,7 +402,7 @@ export async function analyzeFile(file, { color = 'green', prompt: promptIn, nam
   }
 
   try {
-    if (!API_KEY) throw httpError(503, 'No VLMRUN_API_KEY configured on the CLIMBR server.')
+    if (!apiKey) throw httpError(503, 'No VLM Run key on the CLIMBR server. Add it on the Import page.')
     color = String(color).toLowerCase().replace(/[^a-z ]/g, '').trim() || 'green'
     const prompt = String(promptIn || '{color} climbing hold').replace('{color}', color).slice(0, 120)
 

@@ -30,7 +30,6 @@ export interface SessionParts {
   baseUrl?: string // where the manifest's relative paths resolve
   videoUrl?: string
   wallUrl?: string
-  plyUrl?: string
   kind?: Session['kind']
   meta?: Partial<Pick<Session, 'title' | 'climber' | 'gym' | 'route'>>
 }
@@ -281,7 +280,6 @@ export function buildSession(parts: SessionParts): Session {
       : undefined,
     wall: parts.wallUrl ? { src: parts.wallUrl, affine: man?.wall?.affine ?? v?.affine ?? [[1, 0, 0], [0, 1, 0]] } : man?.wall ? { src: resolve(man.wall.src)!, affine: man.wall.affine } : undefined,
     scale,
-    lidar: parts.plyUrl ? { plyUrl: parts.plyUrl } : undefined,
     coach: man?.coach,
     models: man?.models,
   }

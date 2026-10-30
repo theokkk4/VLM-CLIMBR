@@ -1,5 +1,5 @@
 // Imported climbs survive a reload: the session in one store, its video and
-// point cloud as blobs in another. IndexedDB can be unavailable (private
+// wall plate as blobs in another. IndexedDB can be unavailable (private
 // windows, blocked storage), so every call degrades to "not saved".
 
 import type { Session } from './types'
@@ -40,10 +40,8 @@ export async function saveSession(s: Session): Promise<boolean> {
   try {
     const video = await blobOf(s.video?.src)
     const wall = await blobOf(s.wall?.src)
-    const ply = await blobOf(s.lidar?.plyUrl)
     if (video) await tx('blobs', 'readwrite', (st) => st.put(video, `${s.id}:video`))
     if (wall) await tx('blobs', 'readwrite', (st) => st.put(wall, `${s.id}:wall`))
-    if (ply) await tx('blobs', 'readwrite', (st) => st.put(ply, `${s.id}:ply`))
     const copy: Session = JSON.parse(JSON.stringify(s))
     await tx('sessions', 'readwrite', (st) => st.put({ id: s.id, session: copy, savedAt: new Date().toISOString() }))
     return true
@@ -67,11 +65,10 @@ export async function loadSession(id: string): Promise<Session | null> {
     if (!rec) return null
     const s = rec.session
     const get = (k: string) => tx<Blob | undefined>('blobs', 'readonly', (st) => st.get(`${id}:${k}`) as IDBRequest<Blob | undefined>)
-    const [video, wall, ply] = await Promise.all([get('video'), get('wall'), get('ply')])
+    const [video, wall] = await Promise.all([get('video'), get('wall')])
     if (s.video) s.video.src = video ? URL.createObjectURL(video) : s.video.src.startsWith('blob:') ? '' : s.video.src
     if (s.video && !s.video.src) delete s.video
     if (s.wall) s.wall.src = wall ? URL.createObjectURL(wall) : s.wall.src
-    if (s.lidar) s.lidar.plyUrl = ply ? URL.createObjectURL(ply) : undefined
     return s
   } catch {
     return null
@@ -86,7 +83,7 @@ export async function deleteSession(id: string) {
 }
 
 const PREFS = 'climbr:prefs'
-export interface Prefs { onboarded?: boolean; name?: string; grade?: string; color?: string; device?: 'lidar' | 'phone'; letters?: boolean }
+export interface Prefs { onboarded?: boolean; name?: string; grade?: string; color?: string; letters?: boolean }
 export function getPrefs(): Prefs {
   try { return JSON.parse(localStorage.getItem(PREFS) ?? '{}') } catch { return {} }
 }

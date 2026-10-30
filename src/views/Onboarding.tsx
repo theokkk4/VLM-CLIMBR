@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { ArrowLeft, ArrowRight, Box, Check, Play, Smartphone, Upload } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Play, Upload } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { LogoMark } from '../components/Logo'
 import { RoutePanel } from '../components/RoutePanel'
@@ -15,7 +15,6 @@ export function Onboarding({ onDone }: { onDone: (to: string) => void }) {
   const p = getPrefs()
   const [step, setStep] = useState(0)
   const [dir, setDir] = useState(1)
-  const [device, setDevice] = useState<'phone' | 'lidar'>(p.device ?? 'lidar')
   const [name, setName] = useState(p.name ?? '')
   const [grade, setGrade] = useState(p.grade ?? 'V1')
   const [color, setColor] = useState(p.color ?? 'green')
@@ -43,7 +42,7 @@ export function Onboarding({ onDone }: { onDone: (to: string) => void }) {
   })
 
   const finish = (to: string) => {
-    setPrefs({ onboarded: true, name: name.trim() || undefined, grade, color, device })
+    setPrefs({ onboarded: true, name: name.trim() || undefined, grade, color })
     onDone(to)
   }
   const route = ROUTE_COLORS[color] ?? ROUTE_COLORS.green
@@ -65,21 +64,10 @@ export function Onboarding({ onDone }: { onDone: (to: string) => void }) {
               <div className="ob-copy">
                 <span className="kicker">Step 1 · Film it</span>
                 <h1>Prop your phone.<br /><span className="grad">Send the route.</span></h1>
-                <p>Lean it on a water bottle or hand it to a friend. Keep the whole route in view. CLIMBR handles still and handheld clips.</p>
-                <div className="device-cards">
-                  {([
-                    ['phone', <Smartphone key="p" size={20} />, 'Any phone', '2D video · holds, limbs, timing'],
-                    ['lidar', <Box key="l" size={20} />, 'iPhone Pro + LiDAR', '3D wall · real meters · wall angle'],
-                  ] as const).map(([id, icon, t, d]) => (
-                    <motion.button key={id} className={`device ${device === id ? 'on' : ''}`} onClick={() => setDevice(id)} whileTap={{ scale: 0.98 }}>
-                      <span className="device-icon">{icon}</span>
-                      <span><b>{t}</b><em>{d}</em></span>
-                      <span className="device-check">{device === id && <Check size={14} />}</span>
-                    </motion.button>
-                  ))}
-                </div>
+                <p>Lean it on a water bottle or hand it to a friend. Keep the holds you climb in view, and film one attempt per clip: pulling on to topping out. Any phone, still or handheld.</p>
+                <FilmTips />
               </div>
-              <PhoneArt lidar={device === 'lidar'} />
+              <PhoneArt />
             </div>
           )}
 
@@ -129,7 +117,7 @@ export function Onboarding({ onDone }: { onDone: (to: string) => void }) {
                   <Upload size={18} /> Import my climb
                 </motion.button>
               </div>
-              <p className="muted xs">Tip: <kbd>Space</kbd> plays the replay, <kbd>1</kbd>–<kbd>4</kbd> switch views, <kbd>E</kbd> exports.</p>
+              <p className="muted xs">Tip: <kbd>Space</kbd> plays the replay, <kbd>1</kbd>–<kbd>3</kbd> switch views, <kbd>E</kbd> exports.</p>
             </div>
           )}
         </motion.div>
@@ -168,7 +156,7 @@ function Splash({ onNext }: { onNext: () => void }) {
       </h1>
       <motion.p className="splash-tag" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.3, duration: 0.6 }}>Read every move.</motion.p>
       <motion.div className="splash-powered" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.8 }}>
-        SAM 3.1 · ViTPose+ · iPhone LiDAR — via VLM Run
+        SAM 3.1 · ViTPose+ — via VLM Run
       </motion.div>
       <motion.div className="splash-bar" initial={{ scaleX: 0 }} animate={{ scaleX: 1 }} transition={{ delay: 0.4, duration: 3, ease: 'linear' }} />
     </div>
@@ -216,28 +204,32 @@ function LiveDemo({ session }: { session: Session }) {
   )
 }
 
-function PhoneArt({ lidar }: { lidar: boolean }) {
+function FilmTips() {
+  const tips = [['Portrait or landscape', 'whatever shows the whole route'], ['One colour per route', 'you pick it; SAM 3.1 finds every hold of it'], ['Under two minutes', 'one attempt, start to finish']]
+  return (
+    <div className="read-caps">
+      {tips.map(([k, v], i) => (
+        <motion.div key={k} className="read-cap" initial={{ opacity: 0, x: -14 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3 + i * 0.2 }}>
+          <b>{k}</b><span>{v}</span>
+        </motion.div>
+      ))}
+    </div>
+  )
+}
+
+function PhoneArt() {
   return (
     <div className="phone-art">
       <motion.div className="phone" initial={{ rotate: -8, y: 20, opacity: 0 }} animate={{ rotate: -4, y: 0, opacity: 1 }} transition={{ type: 'spring', stiffness: 120, damping: 14 }}>
         <div className="phone-screen">
           <img src="/examples/green-vb/poster.jpg" alt="" />
           <div className="phone-rec"><span className="rec-dot" /> REC</div>
-          <AnimatePresence>
-            {lidar && (
-              <motion.div className="lidar-dots" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                {Array.from({ length: 64 }, (_, i) => (
-                  <motion.i key={i} style={{ left: `${(i % 8) * 12.5 + 6}%`, top: `${Math.floor(i / 8) * 12.5 + 6}%` }} animate={{ opacity: [0.15, 1, 0.15] }} transition={{ duration: 1.6, repeat: Infinity, delay: (i % 8) * 0.05 + Math.floor(i / 8) * 0.08 }} />
-                ))}
-              </motion.div>
-            )}
-          </AnimatePresence>
         </div>
-        <div className="phone-cam">{lidar && <span className="lidar-lens" />}</div>
+        <div className="phone-cam" />
       </motion.div>
       <div className="bottle" />
-      <motion.div className="phone-tag" key={String(lidar)} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-        {lidar ? 'Depth for every frame · meters, not pixels' : 'Any phone, any angle that sees the route'}
+      <motion.div className="phone-tag" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+        Any phone, any angle that sees the route
       </motion.div>
     </div>
   )

@@ -46,7 +46,7 @@ export function TimelineBar({ session: s, tl, player, ps, opts, setOpts }: { ses
         <div className="toggles">
           <button className={opts.skeleton ? 'on' : ''} onClick={() => setOpts({ ...opts, skeleton: !opts.skeleton })} title="Ghost climber"><Bone size={14} /> Climber</button>
           {s.wall && <button className={opts.backdrop ? 'on' : ''} onClick={() => setOpts({ ...opts, backdrop: !opts.backdrop })} title="Wall photo behind the route"><ImageIcon size={14} /> Wall</button>}
-          <button className={opts.letters ? 'on' : ''} onClick={() => setOpts({ ...opts, letters: !opts.letters })} title="Label holds A–Z like the LiDAR view"><Type size={14} /> A–Z</button>
+          <button className={opts.letters ? 'on' : ''} onClick={() => setOpts({ ...opts, letters: !opts.letters })} title="Label holds A–Z"><Type size={14} /> A–Z</button>
           {s.toppedOut && <button onClick={() => { player.seek(tl.climbEnd - 0.05); player.play() }} title="Replay the finale"><RotateCcw size={14} /> Finale</button>}
         </div>
       </div>

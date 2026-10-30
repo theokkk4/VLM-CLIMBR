@@ -64,11 +64,11 @@ export default function App() {
           <Onboarding key="welcome" onDone={(to) => go(to)} />
         ) : (
           <motion.div key="shell" className="shell" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.4 }}>
-            <TopBar health={health} route={navId} go={go} />
+            <TopBar health={health} route={navId} go={go} onHealth={setHealth} />
             <main className="main">
               <AnimatePresence mode="wait">
                 {route.name === 'home' && <Home key="home" sessions={Object.values(sessions)} go={go} />}
-                {route.name === 'import' && <ImportView key="import" health={health} onSession={(s) => { addSession(s); go(`#/session/${encodeURIComponent(s.id)}`) }} />}
+                {route.name === 'import' && <ImportView key="import" health={health} onHealth={setHealth} onSession={(s) => { addSession(s); go(`#/session/${encodeURIComponent(s.id)}`) }} />}
                 {route.name === 'session' && (active ? (
                   <SessionView key={active.id} session={active} health={health} onUpdate={addSession} go={go} />
                 ) : (

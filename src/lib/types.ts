@@ -166,7 +166,6 @@ export interface Session {
   video?: SessionVideo
   wall?: { src: string; affine: number[][] }
   scale?: { metersPerUnit: number; floorY: number; source: 'estimated' | 'lidar' }
-  lidar?: { plyUrl?: string; pointCount?: number; wallAngleDeg?: number; bounds?: { lo: Vec2; span: Vec2 } }
   coach?: CoachFeedback
   models?: { holds?: string; pose?: string }
   usage?: { costUsd?: number }

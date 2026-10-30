@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { AlertTriangle, CheckCircle2, FileVideo, Loader2, RotateCcw, ScanLine, SearchX, Sparkles, Trash2, Upload, X, XCircle } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { ConnectKey } from '../components/ConnectKey'
 import { toast } from '../components/Toast'
 import { readRoute, type Reading } from '../lib/analyze'
 import { analyzeLive, reportRun, STAGE_KEYS, StageError, type Health, type StageEvent, type StageKey } from '../lib/api'
@@ -38,7 +39,7 @@ const fresh = (clip: Clip): Run => ({
   clip,
 })
 
-export function ImportView({ health, onSession }: { health: Health | null; onSession: (s: Session) => void }) {
+export function ImportView({ health, onHealth, onSession }: { health: Health | null; onHealth: (h: Health) => void; onSession: (s: Session) => void }) {
   const prefs = getPrefs()
   const [clip, setClip] = useState<Clip | null>(null)
   const [drag, setDrag] = useState(false)
@@ -209,6 +210,9 @@ export function ImportView({ health, onSession }: { health: Health | null; onSes
             </div>
           </div>
 
+          {health && !health.connected && <div className="card"><ConnectKey health={health} onConnected={onHealth} /></div>}
+          {health === null && <div className="card"><p className="muted xs">Looking for the CLIMBR server…</p></div>}
+
           <div className="card go-card">
             <div className="go-status">
               {ready ? <CheckCircle2 size={16} className="ok" /> : <span className="dot-idle" />}
@@ -217,10 +221,10 @@ export function ImportView({ health, onSession }: { health: Health | null; onSes
             <button className="btn primary wide" disabled={!ready} onClick={start}>
               <Sparkles size={15} /> Analyze with VLM Run
             </button>
-            {!health?.connected && <p className="muted xs">Live analysis needs the CLIMBR server with a <code>VLMRUN_API_KEY</code> in <code>.env</code> (or in the Vercel project’s environment variables).</p>}
             {health?.connected && health.ffmpeg === false && <p className="muted xs">The server has no ffmpeg. Run <code>npm install</code> (it brings ffmpeg-static) and restart it.</p>}
             {health?.connected && health.platform === 'vercel' && health.uploads !== 'blob' && <p className="muted xs">On Vercel, live analysis also needs a Blob store (Storage → Blob → connect to this project).</p>}
             {health?.connected && <p className="muted xs">SAM 3.1 tracks the {color} holds and ViTPose+ poses {health.analysis?.fps ?? 10} frames a second. Usually about a minute and a few cents.</p>}
+            {health && !health.ok && <p className="muted xs">The CLIMBR server is not running. Start it with <code>npm run dev</code>.</p>}
           </div>
 
           {recent.length > 0 && (

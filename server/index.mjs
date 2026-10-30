@@ -10,7 +10,7 @@ import express from 'express'
 import multer from 'multer'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API_KEY, BASE_URL, DEBUG, MEDIA, ROOT, WORK, analyzeFile, coach, hasFfmpeg, health, httpError, isMediaFile, listRuns, runDir, sampleFrames, saveClientReport } from './core.mjs'
+import { DEBUG, MEDIA, ROOT, WORK, analyzeFile, checkKey, coach, getApiKey, hasFfmpeg, health, httpError, isMediaFile, listRuns, runDir, sampleFrames, saveClientReport, saveKey } from './core.mjs'
 
 const UPLOADS = path.join(WORK, 'uploads')
 fs.mkdirSync(UPLOADS, { recursive: true })
@@ -23,12 +23,22 @@ const upload = multer({ dest: UPLOADS, limits: { fileSize: 1024 * 1024 * 1024 } 
 
 app.get('/api/health', (_req, res) => res.json(health()))
 
-// Verifies the key without spending anything: listing models is free.
-app.get('/api/models', async (_req, res) => {
-  if (!API_KEY) return res.status(503).json({ error: 'No VLMRUN_API_KEY configured.' })
-  const r = await fetch(`${BASE_URL}/models`, { headers: { Authorization: `Bearer ${API_KEY}` } })
-  const j = await r.json().catch(() => ({}))
-  res.status(r.status).json({ models: (j.data ?? []).map((m) => ({ id: m.id, task: m.task, methods: m.methods })) })
+// Is the configured key good, and can it use SAM 3.1 and ViTPose+? Free: it
+// only lists models.
+app.get('/api/models', async (_req, res) => res.json(await checkKey()))
+
+// POST /api/key {key} — test a key against the gateway; save it only if it works.
+app.post('/api/key', async (req, res) => {
+  const key = String(req.body?.key ?? '').trim()
+  if (!/^[\w.-]{12,200}$/.test(key)) return res.status(400).json({ ok: false, error: 'That does not look like a VLM Run key.' })
+  const check = await checkKey(key)
+  if (!check.ok) return res.status(400).json(check)
+  try {
+    saveKey(key)
+  } catch (e) {
+    return res.status(e.status ?? 500).json({ ok: false, error: e.message })
+  }
+  res.json({ ...check, saved: true, health: health() })
 })
 
 // A run's playback copy, poster and original: /api/media/<run id>/<file>.
@@ -118,6 +128,6 @@ if (PROD) {
 }
 
 app.listen(PORT, () => {
-  const key = API_KEY ? `key …${API_KEY.slice(-4)}` : 'NO KEY (live analysis disabled)'
+  const key = getApiKey() ? `key …${getApiKey().slice(-4)}` : 'NO KEY — add it on the Import page'
   console.log(`\n  CLIMBR API  http://localhost:${PORT}  ·  VLM Run ${key}  ·  ffmpeg ${hasFfmpeg() ? 'yes' : 'NO (live analysis disabled)'}${DEBUG ? '  ·  debug: /api/debug/runs' : ''}\n`)
 })

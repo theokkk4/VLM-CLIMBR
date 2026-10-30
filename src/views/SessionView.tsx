@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { AlertTriangle, Box, Brain, Bug, Download, GitCompareArrows, Play } from 'lucide-react'
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { AlertTriangle, Brain, Bug, Download, GitCompareArrows, Play } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import { DebugPanel } from '../components/DebugPanel'
 import { ExportSheet } from '../components/ExportSheet'
 import { LivePanel } from '../components/LivePanel'
@@ -16,12 +16,9 @@ import { ROUTE_COLORS, type Session } from '../lib/types'
 import { AttemptsView } from './AttemptsView'
 import { CoachView } from './CoachView'
 
-const Scan3D = lazy(() => import('../components/Scan3D'))
-
-type Tab = 'replay' | 'scan' | 'attempts' | 'coach'
-const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
+type Tab = 'replay' | 'attempts' | 'coach'
+const ALL_TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'replay', label: 'Replay', icon: <Play size={14} /> },
-  { id: 'scan', label: '3D Scan', icon: <Box size={14} /> },
   { id: 'attempts', label: 'Attempts', icon: <GitCompareArrows size={14} /> },
   { id: 'coach', label: 'Coach', icon: <Brain size={14} /> },
 ]
@@ -40,6 +37,8 @@ export function SessionView({ session: s, health, onUpdate }: { session: Session
   const ps = usePlayer(player)
 
   const [tab, setTab] = useState<Tab>('replay')
+  // Attempts compares several climbs of one route; a single clip has nothing to compare.
+  const TABS = useMemo(() => ALL_TABS.filter((t) => t.id !== 'attempts' || s.comparison?.attempts.length), [s])
   const [opts, setOptsState] = useState<ViewOpts>(() => ({ skeleton: true, backdrop: Boolean(s.wall), letters: getPrefs().letters ?? false }))
   const setOpts = (o: ViewOpts) => { setOptsState(o); setPrefs({ letters: o.letters }) }
   const [cardDismissed, setCardDismissed] = useState(false)
@@ -57,18 +56,12 @@ export function SessionView({ session: s, health, onUpdate }: { session: Session
       if (e.code === 'Space') { e.preventDefault(); player.toggle() }
       else if (e.key === 'ArrowRight') player.seek(player.get().t + (e.shiftKey ? 2 : 0.5))
       else if (e.key === 'ArrowLeft') player.seek(player.get().t - (e.shiftKey ? 2 : 0.5))
-      else if (['1', '2', '3', '4'].includes(e.key)) setTab(TABS[Number(e.key) - 1].id)
+      else if (['1', '2', '3'].includes(e.key) && TABS[Number(e.key) - 1]) setTab(TABS[Number(e.key) - 1].id)
       else if (e.key.toLowerCase() === 'e') setExportOpen(true)
     }
     window.addEventListener('keydown', on)
     return () => window.removeEventListener('keydown', on)
-  }, [player])
-
-  // Warm the 3D view's chunk while the replay plays, so switching is instant.
-  useEffect(() => {
-    const id = setTimeout(() => { void import('../components/Scan3D') }, 1200)
-    return () => clearTimeout(id)
-  }, [])
+  }, [player, TABS])
 
   const route = ROUTE_COLORS[s.route.color] ?? ROUTE_COLORS.green
   const seekAndShow = (t: number) => { setTab('replay'); player.seek(t) }
@@ -83,7 +76,6 @@ export function SessionView({ session: s, health, onUpdate }: { session: Session
             {s.gym && <span className="chip">{s.gym}</span>}
             <span className="chip"><span className="avatar">{s.climber.slice(0, 1)}</span>{s.climber}</span>
             {s.kind === 'example' && <span className="chip accent">Example</span>}
-            {s.scale?.source === 'lidar' && <span className="chip accent">LiDAR</span>}
           </div>
         </div>
         <div className="tabs" role="tablist">
@@ -124,14 +116,6 @@ export function SessionView({ session: s, health, onUpdate }: { session: Session
               </div>
               <LivePanel session={s} tl={tl} t={ps.t} letters={opts.letters} onSeek={(t) => player.seek(t)} />
             </div>
-            <TimelineBar session={s} tl={tl} player={player} ps={ps} opts={opts} setOpts={setOpts} />
-          </motion.div>
-        )}
-        {tab === 'scan' && (
-          <motion.div key="scan" className="tab-body" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}>
-            <Suspense fallback={<div className="loading-screen"><div className="spinner" /></div>}>
-              <Scan3D session={s} tl={tl} player={player} letters={opts.letters} />
-            </Suspense>
             <TimelineBar session={s} tl={tl} player={player} ps={ps} opts={opts} setOpts={setOpts} />
           </motion.div>
         )}

@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { AlertTriangle, ArrowRight, Box, Brain, Clapperboard, Play, ScanLine, Upload } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Brain, Clapperboard, Play, ScanLine, Upload } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { MiniRoute } from '../components/MiniRoute'
 import { sessionProblem } from '../lib/live'
@@ -22,7 +22,7 @@ export function Home({ sessions, go }: { sessions: Session[]; go: (h: string) =>
             Read every <span className="grad">move.</span>
           </motion.h1>
           <motion.p initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }}>
-            CLIMBR finds every hold on your route, tracks all four limbs, and turns a phone video — or an iPhone LiDAR scan — into a synced replay, a 3D wall in meters, and a coach’s notes.
+            Film one attempt on your phone. CLIMBR finds every hold on your route with SAM 3.1, tracks all four limbs with ViTPose+, and turns it into a synced replay, a move-by-move read of your beta, and a coach’s notes.
           </motion.p>
           <motion.div className="cta" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }}>
             <button className="btn primary lg" onClick={() => go('#/session/example-green-vb')}><Play size={16} fill="currentColor" /> Watch the example</button>
@@ -32,7 +32,6 @@ export function Home({ sessions, go }: { sessions: Session[]; go: (h: string) =>
             <span className="chip"><ScanLine size={12} /> SAM 3.1</span>
             <span className="chip">ViTPose+ Large</span>
             <span className="chip"><Brain size={12} /> VLM coach</span>
-            <span className="chip"><Box size={12} /> iPhone LiDAR</span>
             <span className="muted xs">all through the VLM Run gateway</span>
           </motion.div>
         </div>
@@ -82,7 +81,7 @@ export function Home({ sessions, go }: { sessions: Session[]; go: (h: string) =>
 
       <div className="how">
         {[
-          { icon: <Clapperboard size={18} />, t: 'Film it', d: 'Phone on a water bottle, or a friend. iPhone Pro adds LiDAR depth.' },
+          { icon: <Clapperboard size={18} />, t: 'Film it', d: 'Phone on a water bottle, or in a friend’s hand. One attempt per clip.' },
           { icon: <ScanLine size={18} />, t: 'Segment', d: 'SAM 3.1 finds every hold of your colour — no training, any gym.' },
           { icon: <Play size={18} />, t: 'Track', d: 'ViTPose+ follows both hands and feet, frame by frame.' },
           { icon: <Brain size={18} />, t: 'Coach', d: 'A VLM watches the clip with the numbers and tells you what to fix.' },

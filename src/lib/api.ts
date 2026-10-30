@@ -7,6 +7,7 @@ import { checkResult, type AnalyzeResult } from './vlm'
 export interface Health {
   ok: boolean
   connected: boolean
+  canSaveKey?: boolean
   gateway?: string
   models?: { holds: string; pose: string; coach: string }
   ffmpeg?: boolean
@@ -14,6 +15,29 @@ export interface Health {
   debug?: boolean
   platform?: 'node' | 'vercel'
   uploads?: 'direct' | 'blob' | 'none'
+}
+
+export interface KeyCheck { ok: boolean; status: number; error: string | null; models: string[]; missing?: string[]; coach?: string[]; saved?: boolean; health?: Health }
+
+/** What the configured key can do, straight from the gateway. */
+export async function checkModels(): Promise<KeyCheck> {
+  try {
+    const r = await fetch('/api/models')
+    return await r.json()
+  } catch {
+    return { ok: false, status: 0, error: 'Could not reach the CLIMBR server. Is `npm run dev` running?', models: [] }
+  }
+}
+
+/** Test a key against the gateway; the server saves it only when it works. */
+export async function connectKey(key: string): Promise<KeyCheck> {
+  try {
+    const r = await fetch('/api/key', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key }) })
+    const j = await r.json().catch(() => ({}))
+    return { ok: false, status: r.status, models: [], error: `Server ${r.status}`, ...j }
+  } catch {
+    return { ok: false, status: 0, error: 'Could not reach the CLIMBR server. Is `npm run dev` running?', models: [] }
+  }
 }
 
 export async function health(): Promise<Health> {
